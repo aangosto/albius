@@ -1,0 +1,7 @@
+node_modules
+dist
+build
+*.tsbuildinfo
+.firebase
+docs/04-bocetos-pantallas.html
+package-lock.json
