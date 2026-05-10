@@ -12,7 +12,7 @@ export default function App() {
     <main className="min-h-screen flex items-center justify-center bg-background p-6">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle className="text-3xl">Hola Albius</CardTitle>
+          <CardTitle className="text-3xl">Hola Albius!</CardTitle>
           <CardDescription>
             Plataforma de gestión de turnos para empresas de transporte urbano.
           </CardDescription>
