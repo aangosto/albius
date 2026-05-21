@@ -208,9 +208,13 @@ export interface Usuario {
   centroId?: string; // null si super_admin
   conductorId?: string; // Solo si rol = conductor
   estado: EstadoUsuario;
+  passwordChangeRequired?: boolean; // true si el usuario debe cambiar la contraseña en el próximo login (típico tras alta inicial).
   fechaCreacion: Timestamp;
   ultimoLogin?: Timestamp;
   tokensFCM?: string[]; // Tokens de dispositivos para push notifications
+  // --- Auditoría (server-side) ---
+  creadoPor?: string; // UID del usuario que ejecutó el callable que creó este documento (D7). Los callables del Bloque 3.2 lo rellenan siempre; podría faltar en datos legados o importados.
+  creadoEn?: Timestamp; // FieldValue.serverTimestamp() al crear el documento (D7). Mismas garantías que arriba.
 }
 
 // ============================================================================
@@ -240,6 +244,9 @@ export interface Conductor {
   maxHorasSemanales?: number; // Override del estándar del convenio
   puedeSerReserva: boolean;
   observaciones?: string;
+  // --- Auditoría (server-side) ---
+  creadoPor?: string; // UID del usuario que ejecutó el callable que creó este documento (D7). Los callables del Bloque 3.2 lo rellenan siempre; podría faltar en datos legados o importados.
+  creadoEn?: Timestamp; // FieldValue.serverTimestamp() al crear el documento (D7). Mismas garantías que arriba.
 }
 
 // ============================================================================
