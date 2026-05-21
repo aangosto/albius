@@ -117,3 +117,15 @@ Pendientes asumidos conscientemente durante la construcción del proyecto, con e
 - `TODO[verificar-reglas-en-uso-real]` — validar empíricamente en Bloque 5 las ramas de `firestore.rules` (casos 8-15 del Rules Playground) que no se pudieron probar en su momento.
 - `TODO[refactor-zod]` — si los callables crecen a 10 o más, refactorizar validación de payloads a Zod.
 - Pendiente actualizar Node de 20.17 a 20.19+ cuando convenga (warn `EBADENGINE` de `eslint-visitor-keys`, no bloqueante).
+
+## 13. Decisiones del Bloque 3 (callables crearJefeTrafico + crearConductor)
+
+Decisiones de diseño aprobadas durante la planificación del bloque y consolidadas aquí como referencia para la implementación y para futuros bloques que toquen los mismos callables.
+
+- **D1 — `conductorId` desacoplado del `uid` de Firebase Auth.** El identificador del conductor coincide con el número de empleado (información de negocio que debe sobrevivir a cambios de cuenta de Auth) y NO con el `uid` del documento `/usuarios`. El enlace usuario↔conductor se hace mediante el campo `conductorId` en el documento `/usuarios`.
+- **D2 — `crearConductor` crea `/usuarios` y `/conductores` atómicamente.** El callable escribe ambos documentos en una única operación. Si alguna de las dos escrituras falla, rollback completo (incluyendo el usuario de Firebase Auth si ya se creó). Un conductor sin sus dos documentos no es funcional.
+- **D3 — Contraseña inicial vía `generatePasswordResetLink`.** El email de configuración de contraseña se envía con `generatePasswordResetLink` del Admin SDK. NUNCA devolver contraseñas en la respuesta del callable ni escribirlas en logs. Si el usuario pierde el enlace, se repite el flujo desde super_admin.
+- **D4 — Validación de payloads con type guards a mano.** En este bloque NO se introduce Zod: se valida cada campo con type guards y se lanza `invalid-argument` con mensaje claro al fallar. Si los callables crecen a 10 o más se refactoriza (ver `TODO[refactor-zod]` en §12).
+- **D5 — Sesión 3 partida en dos sub-sesiones por tamaño.** Bloque 3.1: scaffold del paquete `apps/functions` + callable `ping` (completado). Bloque 3.2: callables `crearJefeTrafico` y `crearConductor`.
+- **D6 — Verificación de existencia de referencias antes de crear.** `crearJefeTrafico` verifica que `/tenants/{tenantId}` y `/centros/{centroId}` existen. `crearConductor` verifica lo mismo y además que el `tenantId` del payload coincide con el `tenantId` del jefe que llama (anti cross-tenant). Si falla la verificación, devolver `invalid-argument` indicando qué referencia no existe.
+- **D7 — Auditoría mínima en cada documento creado.** Los documentos nuevos en `/usuarios` y `/conductores` incluyen `creadoPor` (uid del invocador, `request.auth.uid`) y `creadoEn` (`FieldValue.serverTimestamp()`).
