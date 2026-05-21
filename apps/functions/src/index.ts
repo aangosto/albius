@@ -29,3 +29,5 @@ export const ping = onCall((request) => {
     timestamp: new Date().toISOString(),
   };
 });
+
+export { crearJefeTrafico } from "./callables/crearJefeTrafico";
