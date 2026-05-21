@@ -13,6 +13,8 @@
   "scripts": {
     "dev": "npm run dev -w apps/web",
     "build": "npm run build -w apps/web",
+    "build:functions": "npm --workspace @albius/functions run build",
+    "emulate": "npm run build:functions && npx firebase emulators:start --only auth,firestore,functions",
     "lint": "eslint .",
     "format": "prettier --write \"**/*.{ts,tsx,js,json,md,css,html}\""
   },
@@ -22,6 +24,7 @@
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-react": "^7.37.2",
     "eslint-plugin-react-hooks": "^5.0.0",
+    "firebase-tools": "^15.18.0",
     "globals": "^15.12.0",
     "prettier": "^3.3.3",
     "typescript": "^5.6.3",

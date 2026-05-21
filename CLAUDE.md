@@ -107,3 +107,13 @@ Si propones algo que contradice un punto de aquí, primero levanta la mano para 
 - Firebase Auth, custom claims y reglas reales de Firestore.
 - Persistencia: ningún CRUD ni funcionalidad de negocio (cuadrante, intercambios, incidencias…).
 - Cloud Functions y optimizador Python.
+
+## 12. Deuda técnica conocida (TODOs activos)
+
+Pendientes asumidos conscientemente durante la construcción del proyecto, con etiqueta de contexto para grep. Revisar en el bloque o sesión indicada.
+
+- `TODO[firebase-json-runtime-explicito]` — añadir `"runtime": "nodejs20"` al bloque `functions` de `firebase.json` antes del primer deploy real. Revisar en Bloque 5/6.
+- `TODO[deuda-tecnica-deps-firebase]` — cluster de 9 vulnerabilidades `low` transitivas en `firebase-admin` → `@google-cloud/firestore` → `google-gax` → `retry-request` → `teeny-request` → `http-proxy-agent` → `@tootallnate/once`. `npm audit fix --force` bajaría `firebase-admin` a v10 (breaking change). Postpuesto hasta que Firebase publique nuevas versiones del SDK con las deps actualizadas.
+- `TODO[verificar-reglas-en-uso-real]` — validar empíricamente en Bloque 5 las ramas de `firestore.rules` (casos 8-15 del Rules Playground) que no se pudieron probar en su momento.
+- `TODO[refactor-zod]` — si los callables crecen a 10 o más, refactorizar validación de payloads a Zod.
+- Pendiente actualizar Node de 20.17 a 20.19+ cuando convenga (warn `EBADENGINE` de `eslint-visitor-keys`, no bloqueante).
