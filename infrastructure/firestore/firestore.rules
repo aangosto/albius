@@ -1,12 +1,177 @@
 rules_version = '2';
 
+// ============================================================================
+//  REGLAS DE SEGURIDAD FIRESTORE — Albius
+// ============================================================================
+//
+//  Aislamiento multi-tenant estricto basado en custom claims del token JWT:
+//    - rol:        'super_admin' | 'jefe_trafico' | 'conductor'
+//    - tenantId:   id del tenant al que pertenece el usuario (no presente en
+//                  super_admin, que tiene acceso global)
+//    - centroId:   id del centro al que pertenece el usuario (no presente en
+//                  super_admin)
+//
+//  Los custom claims se asignan vía Admin SDK desde Cloud Functions al crear
+//  cada usuario. El cliente fuerza el refresco del token con
+//  getIdTokenResult({ forceRefresh: true }) para que los claims nuevos
+//  alcancen las reglas.
+//
+//  Esta sesión solo abre 4 colecciones (tenants, centros, usuarios,
+//  conductores). El resto del modelo permanece con deny-all explícito hasta
+//  que se aborde en su sesión correspondiente.
+// ============================================================================
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Placeholder: denegar todo por defecto.
-    // Reglas reales pendientes de implementar al integrar Firebase Auth y custom claims.
-    // Ver docs/02-modelo-de-datos.pdf §7 para el esquema completo.
-    match /{document=**} {
-      allow read, write: if false;
+
+    // ========================================================================
+    //  HELPERS
+    // ========================================================================
+
+    function isAuth() {
+      return request.auth != null;
     }
+
+    function isSuperAdmin() {
+      return isAuth() && request.auth.token.rol == 'super_admin';
+    }
+
+    function isJefeTrafico() {
+      return isAuth() && request.auth.token.rol == 'jefe_trafico';
+    }
+
+    function isConductor() {
+      return isAuth() && request.auth.token.rol == 'conductor';
+    }
+
+    // Comprueba que el documento pertenece al mismo tenant que el usuario.
+    // El super_admin pasa por diseño porque su token NO lleva claim `tenantId`:
+    // representa acceso global (uso interno para soporte y bootstrap).
+    // IMPORTANTE: si en el futuro hay que restringir a super_admin sobre una
+    // colección concreta, NO uses sameTenant() para esa regla — escribe una
+    // condición específica que no incluya la rama isSuperAdmin().
+    function sameTenant(tid) {
+      return isSuperAdmin() || (isAuth() && request.auth.token.tenantId == tid);
+    }
+
+    // Mismo principio que sameTenant() respecto al super_admin.
+    // Ver comentario sobre sameTenant() para la implicación de seguridad.
+    function sameCentro(cid) {
+      return isSuperAdmin() || (isAuth() && request.auth.token.centroId == cid);
+    }
+
+    function ownerOfDoc(uid) {
+      return isAuth() && request.auth.uid == uid;
+    }
+
+    // Devuelve true si la operación de update intenta modificar al menos uno
+    // de los campos listados. Se usa para impedir que un usuario pueda alterar
+    // campos sensibles de su propio documento (rol, tenantId, etc.).
+    function fieldsChanged(fields) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    // ========================================================================
+    //  4.1  TENANTS
+    // ========================================================================
+
+    match /tenants/{tenantId} {
+      allow read: if isSuperAdmin() || sameTenant(tenantId);
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    // ========================================================================
+    //  4.2  CENTROS
+    // ========================================================================
+
+    match /centros/{centroId} {
+      allow read: if isSuperAdmin()
+                  || (isAuth() && sameTenant(resource.data.tenantId));
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    // ========================================================================
+    //  4.3  USUARIOS
+    // ========================================================================
+    //
+    //  - create: prohibido desde cliente. Solo Cloud Functions (Admin SDK)
+    //    pueden crear documentos /usuarios porque la operación requiere
+    //    setear custom claims atómicamente en el mismo paso.
+    //  - update sensible (rol, tenantId, centroId, conductorId, estado,
+    //    passwordChangeRequired): reservado a super_admin. El propio usuario
+    //    puede actualizar el resto de campos (nombreCompleto, telefono,
+    //    tokensFCM, ultimoLogin).
+    //  - delete: solo super_admin. En la práctica se prefiere soft-delete
+    //    mediante estado='suspendido'.
+
+    match /usuarios/{uid} {
+      allow read: if isSuperAdmin()
+                  || ownerOfDoc(uid)
+                  || (isJefeTrafico() && sameTenant(resource.data.tenantId));
+
+      allow create: if false;
+
+      allow update: if isSuperAdmin()
+                    || (
+                      ownerOfDoc(uid)
+                      && !fieldsChanged([
+                        'rol',
+                        'tenantId',
+                        'centroId',
+                        'conductorId',
+                        'estado',
+                        'passwordChangeRequired'
+                      ])
+                    );
+
+      allow delete: if isSuperAdmin();
+    }
+
+    // ========================================================================
+    //  4.4  CONDUCTORES
+    // ========================================================================
+
+    match /conductores/{conductorId} {
+      allow read: if isSuperAdmin()
+                  || (isAuth() && sameTenant(resource.data.tenantId));
+
+      allow create: if (isSuperAdmin() || isJefeTrafico())
+                    && sameTenant(request.resource.data.tenantId);
+
+      allow update: if (isSuperAdmin() || isJefeTrafico())
+                    && sameTenant(resource.data.tenantId);
+
+      allow delete: if isSuperAdmin();
+    }
+
+    // ========================================================================
+    //  COLECCIONES NO ABIERTAS EN ESTA SESIÓN — DENY-ALL EXPLÍCITO
+    // ========================================================================
+    //
+    //  Cada colección del modelo que no hemos abierto en la sesión actual se
+    //  cierra explícitamente. Cuando se aborde la sesión correspondiente,
+    //  sustituir el deny-all por las reglas específicas de esa colección.
+    //
+    //  NO añadir un wildcard `match /{path=**}` final: queremos que la
+    //  presencia o ausencia de una entrada por colección sea explícita.
+
+    match /lineas/{id}                    { allow read, write: if false; }
+    match /paradas/{id}                   { allow read, write: if false; }
+    match /frecuencias/{id}               { allow read, write: if false; }
+    match /frecuencias_excepcionales/{id} { allow read, write: if false; }
+    match /tipos_turno/{id}               { allow read, write: if false; }
+    match /servicios/{id}                 { allow read, write: if false; }
+    match /cuadrantes/{id}                { allow read, write: if false; }
+    match /versiones_cuadrante/{id}       { allow read, write: if false; }
+    match /asignaciones/{id}              { allow read, write: if false; }
+    match /cambios_asignaciones/{id}      { allow read, write: if false; }
+    match /preferencias_permanentes/{id}  { allow read, write: if false; }
+    match /preferencias_puntuales/{id}    { allow read, write: if false; }
+    match /solicitudes_intercambio/{id}   { allow read, write: if false; }
+    match /incidencias/{id}               { allow read, write: if false; }
+    match /festivos/{id}                  { allow read, write: if false; }
+    match /convenio/{id}                  { allow read, write: if false; }
+    match /notificaciones/{id}            { allow read, write: if false; }
+    match /audit_logs/{id}                { allow read, write: if false; }
   }
 }
