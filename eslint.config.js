@@ -15,9 +15,6 @@ export default [
       '**/.firebase/**',
       '**/coverage/**',
       'docs/**',
-      // Scripts de verificación local: coherente con .gitignore, fuera de
-      // scope de lint hasta consolidación a `.mts` con TypeScript en 3.2.e.
-      'apps/functions/scripts/**',
     ],
   },
   js.configs.recommended,
@@ -48,6 +45,12 @@ export default [
   },
   {
     files: ['apps/functions/**/*.ts'],
+    languageOptions: {
+      globals: { ...globals.node },
+    },
+  },
+  {
+    files: ['apps/functions/scripts/**/*.mjs'],
     languageOptions: {
       globals: { ...globals.node },
     },
