@@ -1,6 +1,10 @@
 import { initializeApp, type FirebaseApp } from 'firebase/app';
-import { getAuth, type Auth } from 'firebase/auth';
-import { getFirestore, type Firestore } from 'firebase/firestore';
+import { connectAuthEmulator, getAuth, type Auth } from 'firebase/auth';
+import {
+  connectFirestoreEmulator,
+  getFirestore,
+  type Firestore,
+} from 'firebase/firestore';
 
 type FirebaseEnvVar =
   | 'VITE_FIREBASE_API_KEY'
@@ -34,3 +38,12 @@ const firebaseConfig = {
 export const firebaseApp: FirebaseApp = initializeApp(firebaseConfig);
 export const auth: Auth = getAuth(firebaseApp);
 export const db: Firestore = getFirestore(firebaseApp);
+
+// Conexión a emulators locales si VITE_USE_EMULATORS=true (solo desarrollo).
+// En producción (Vercel) la variable está vacía o "false" y se conecta a
+// Firebase real con la config de arriba.
+if (import.meta.env.VITE_USE_EMULATORS === 'true') {
+  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+  connectFirestoreEmulator(db, '127.0.0.1', 8080);
+  console.info('[albius] Conectado a Firebase Emulators (Auth + Firestore)');
+}

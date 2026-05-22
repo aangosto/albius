@@ -32,16 +32,21 @@ Roles: super_admin (autor del producto), jefe de tráfico (operativa diaria), co
 albius/
 ├── apps/
 │   ├── web/                          ← React 19 + Vite 6 + TS + Tailwind 4 + shadcn/ui
-│   │   └── src/
-│   │       ├── App.tsx, main.tsx, router.tsx
-│   │       ├── components/{layout,ui}/   ← Sidebar/Topbar + componentes shadcn
-│   │       ├── layouts/AppLayout.tsx
-│   │       ├── lib/{navigation,utils}.ts
-│   │       ├── pages/                    ← 10 páginas (Login + 9 rutas autenticadas)
-│   │       └── index.css                 ← Tailwind v4 + tema shadcn
-│   └── functions/                    ← Cloud Functions (PLACEHOLDER, sin código)
+│   │   ├── src/
+│   │   │   ├── App.tsx, main.tsx, router.tsx
+│   │   │   ├── components/{layout,ui}/   ← Sidebar/Topbar + componentes shadcn
+│   │   │   ├── contexts/AuthContext.tsx  ← Provider + hook useAuth (Firebase Auth Web SDK)
+│   │   │   ├── layouts/AppLayout.tsx
+│   │   │   ├── lib/                      ← firebase, auth-errors, navigation, utils
+│   │   │   ├── pages/                    ← 10 páginas (Login + 9 rutas autenticadas)
+│   │   │   └── index.css                 ← Tailwind v4 + tema shadcn
+│   │   └── .env.example                  ← plantilla VITE_FIREBASE_* + VITE_USE_EMULATORS
+│   └── functions/                    ← Cloud Functions Node
+│       ├── src/                          ← 3 callables (ping, crearJefeTrafico, crearConductor) + helpers
+│       └── scripts/                      ← testing infra (verify-*, seed-*) contra emulator
 ├── packages/
-│   └── shared/                       ← @albius/shared — tipos del modelo (firebase-stubs.ts hasta integrar SDK)
+│   └── shared/                       ← @albius/shared — tipos del modelo (firebase-stubs.ts legacy pendiente de retirar, ver §12)
+├── scripts/                          ← scripts CLI standalone (bootstrap-super-admin.mjs)
 ├── infrastructure/
 │   └── firestore/                    ← PLACEHOLDER (reglas deny-all, índices vacíos)
 ├── docs/                             ← ver §7
@@ -104,9 +109,11 @@ Si propones algo que contradice un punto de aquí, primero levanta la mano para 
 - Tipos del modelo accesibles vía `@albius/shared`; CI/CD a Vercel activo desde `main`.
 - Cloud Functions Node con 3 callables (`ping`, `crearJefeTrafico`, `crearConductor`), helpers reutilizables (auth-guards, validación sin Zod por D4, refs Firestore), custom claims operativos en backend y scripts de verificación contra emulators (42 casos pasados).
 - Script CLI `scripts/bootstrap-super-admin.mjs` para alta de super_admins con 6 capas de fail-safe contra accidentes en producción (capas 1-3 verificadas empíricamente contra emulator con 11/11 casos; capas 4-6 deferred a verificación con Firebase real, ver `TODO[bootstrap-verify-production-layers]` en §12).
+- Login funcional en `apps/web` con `useAuth` hook + `AuthContext` (Firebase Auth Web SDK + `signInWithEmailAndPassword`). Soporta emulator local vía `VITE_USE_EMULATORS=true`. Verificación manual contra emulator OK: login con super_admin, signOut, persistencia de sesión tras reload, mensajes de error genéricos para credenciales inválidas (decisión de seguridad: no revelar si el email está registrado).
 
 **No hecho:**
-- Login en `apps/web` (sigue deshabilitado) y reglas reales de Firestore (`firestore.rules` sigue deny-all).
+- Redirección por rol tras login + ProtectedRoute (Bloque 6) y forzado de cambio de password en primer login (Bloque 7).
+- Reglas reales de Firestore (`firestore.rules` sigue deny-all).
 - Persistencia: ningún CRUD ni funcionalidad de negocio (cuadrante, intercambios, incidencias…).
 - Optimizador Python en Cloud Run (V2).
 
@@ -121,12 +128,15 @@ Pendientes asumidos conscientemente durante la construcción del proyecto, con e
 - Pendiente actualizar Node de 20.17 a 20.19+ cuando convenga (warn `EBADENGINE` de `eslint-visitor-keys`, no bloqueante).
 - `TODO[refactor-shared-build]` — compilar `@albius/shared` a JS con su propio paso de build, eliminar el módulo local `apps/functions/src/collections.ts` y volver a importar `COLLECTIONS` desde `@albius/shared`. Origen: commit `e879854` (sub-bloque 3.2.c). Hoy `shared` se distribuye como TypeScript crudo (`main: "./src/index.ts"`, `noEmit: true`), lo cual funciona en `apps/web` por el resolver de Vite pero no en `apps/functions` tras compilar a CJS. Requiere bloque dedicado: toca `packages/shared`, `apps/functions`, scripts de build raíz y posible verificación de Vite.
 - `TODO[email-transport]` — implementar transporte real de email para enviar el `linkPasswordReset` que devuelven los callables `crearJefeTrafico` (3.2.b) y `crearConductor` (3.2.d). Hoy el link queda en la respuesta del callable y el super_admin lo distribuye manualmente. Bloquea el flujo automático de alta de usuarios en producción. Decidir entre SendGrid, Resend, Firebase Extensions u otra alternativa antes del primer despliegue real.
-- `TODO[refactor-verify-helpers]` — extraer los helpers duplicados de `apps/functions/scripts/verify-crearJefeTrafico.mjs` y `verify-crearConductor.mjs` (`signInWithCustomToken`, `invokeCallable`, `checkEmulatorsUp`, `expectError`, `record`) a un módulo compartido. Origen: commit `af29340` (sub-bloque 3.2.e). Encaja cuando llegue el tercer script de verificación, previsiblemente en Bloque 4. Decisión pendiente: módulo `.mjs` auxiliar o migración a `.mts` con TypeScript (pipeline nueva: build / tsx / ts-node).
+- `TODO[refactor-verify-helpers]` — extraer los helpers duplicados de `apps/functions/scripts/verify-crearJefeTrafico.mjs` y `verify-crearConductor.mjs` (`signInWithCustomToken`, `invokeCallable`, `checkEmulatorsUp`, `expectError`, `record`) a un módulo compartido. Origen: commit `af29340` (sub-bloque 3.2.e). El Bloque 4 añadió `scripts/bootstrap-super-admin.mjs` y el Bloque 5 añadió `apps/functions/scripts/seed-test-user.mjs`, ambos con scope distinto que no comparte estos helpers concretos. Encaja cuando llegue un tercer script de verificación contra emulator que sí los comparta. Decisión pendiente: módulo `.mjs` auxiliar o migración a `.mts` con TypeScript (pipeline nueva: build / tsx / ts-node).
 - `TODO[refactor-ping-helpers]` — el callable `ping` del sub-bloque 3.1 (commit `d6f2540`) lee `request.auth.token` directamente para extraer el campo `rol`. Refactorizar para usar `extractClaims` y `assertAuth` de `apps/functions/src/auth-guards.ts` (introducidos después en 3.2.a, commit `348f77f`), simétrico al resto de callables. Deuda menor, sin urgencia.
 - `TODO[tipos-conductor-requeridos]` — revisar si los arrays `lineasPreferentes`, `lineasSecundarias` y `tiposTurnoPermitidos` del modelo `Conductor` (`packages/shared/src/types.ts`) deben permanecer required. El callable `crearConductor` los defaultea a `[]` cuando el payload los omite (DUDA-8 de 3.2.d, commit `e810832`). Si el dominio acepta "todavía no asignado" como estado natural, considerar marcarlos opcionales (`?`) para reflejar mejor el modelo conceptual.
 - `TODO[jefe-claims-incompletos]` — definir comportamiento cuando un token tiene `rol=jefe_trafico` pero falta `tenantId` o `centroId` en custom claims. Hoy `crearConductor` cae en el check anti cross-tenant con mensaje confuso (3.2.d): `claims.tenantId === undefined` siempre será distinto del `payload.tenantId`, lanzando "Un jefe de tráfico no puede crear conductores en otro tenant." cuando el problema real es alta incompleta. Decidir entre `permission-denied` con mensaje específico o `failed-precondition` simétrico a `assertJefeTrafico`.
 - `TODO[verify-cleanup-usuarios-huerfanos]` — los scripts `verify-crearJefeTrafico.mjs` y `verify-crearConductor.mjs` dejan documentos `/usuarios/{uid}` huérfanos en Firestore tras ejecuciones repetidas: el `uid` se regenera con cada `createUser` y los docs anteriores no se borran. No afectan funcionalmente (los tests no consultan esos docs), pero ensucian el estado del emulator. Añadir limpieza opcional al inicio (p.ej. borrar `/usuarios` con `creadoEn` > timestamp del seed) cuando se consolide la infra de testing. Encaja con `TODO[refactor-verify-helpers]`.
 - `TODO[bootstrap-verify-production-layers]` — verificar empíricamente las capas 4 (banner production), 5 (confirmación 'CONFIRMAR' interactiva) y 6 (project ID = albius-cbdb1) del script `scripts/bootstrap-super-admin.mjs`. Origen: Bloque 4 (alta de super_admin). Hoy están probadas solo por inspección de código + revisión de mensajes; las capas 1-3 sí se verificaron empíricamente (11/11 casos contra emulator). Verificación empírica de 4-6 requiere ejecución contra Firebase real, pospuesta al Bloque 18 (deploy) o equivalente.
+- `TODO[verify-full-password-reset-flow]` — verificar empíricamente el flujo COMPLETO del password reset link emitido por el bootstrap CLI con `generatePasswordResetLink`. Hoy solo se ha verificado con `apps/functions/scripts/seed-test-user.mjs` que usa password directo (atajo aceptable solo para testing en emulator, decidido durante el Bloque 5). Origen: Bloque 5. Encaja cuando exista transporte de email implementado (ver `TODO[email-transport]`) o cuando se valide manualmente siguiendo el link emitido por bootstrap CLI en emulator desde el navegador.
+- `TODO[web-bundle-splitting]` — el bundle JS de `apps/web` supera los 500 kB (610 kB / 172 kB gzip) por la combinación de Firebase Web SDK (~250 kB) + React 19 + lucide-react. Vite emite warning informativo cada build. Posibles soluciones: code-splitting por ruta con `React.lazy` + dynamic imports, configurar `manualChunks` para separar Firebase y React, o ajustar `chunkSizeWarningLimit`. Origen: Bloque 5 (verificado en PASO 4 de la sesión). Posponer hasta que el bundle crezca o el tiempo de carga sea perceptible en producción.
+- `TODO[remove-firebase-stubs]` — eliminar `packages/shared/src/firebase-stubs.ts`. Era un stub temporal con tipos `Timestamp` y `GeoPoint` mientras `@albius/shared` no integraba el Firebase SDK. Hoy `apps/web/src/lib/firebase.ts` (Web SDK) y `apps/functions/src/` (Admin SDK) están operativos; el stub ya no cumple función. Verificar que ningún tipo de `packages/shared` lo importe antes de borrar (grep actual: `types.ts` y `index.ts` lo referencian; migrar a importar tipos de `firebase/firestore` o `firebase-admin/firestore` directamente, o decidir si `@albius/shared` se mantiene neutral SDK). Origen: Bloque 5 (verificación de §5).
 
 ## 13. Decisiones del Bloque 3 (callables crearJefeTrafico + crearConductor)
 
@@ -141,3 +151,22 @@ Decisiones de diseño aprobadas durante la planificación del bloque y consolida
   - **Ampliación 3.2.d:** para `crearConductor` se verifica también que `claims.centroId === payload.centroId` cuando invoca un jefe (anti cross-centro), por simetría con la identidad operativa del jefe `(tenantId, centroId)`. Mensaje: "Un jefe de tráfico no puede crear conductores en otro centro." (DUDA-11 de 3.2.d). Sin esta ampliación, un jefe del centro A podría crear conductores en centro B del mismo tenant, lo cual es abuso de permisos. Implementación: commit `e810832`.
 - **D7 — Auditoría mínima en cada documento creado.** Los documentos nuevos en `/usuarios` y `/conductores` incluyen `creadoPor` (uid del invocador, `request.auth.uid`) y `creadoEn` (`FieldValue.serverTimestamp()`).
   - **Ampliación Bloque 4:** bootstrap CLI usa `creadoPor: 'bootstrap-cli'` como valor convencional al no existir `request.auth.uid` (script ejecutado fuera del flujo callable, sin invocador autenticado). Implementación: `scripts/bootstrap-super-admin.mjs`. Grep-eable para localizar todos los super_admins creados por bootstrap CLI vs por callables (que tendrían un uid real en `creadoPor`).
+
+## 14. Procedimiento de trabajo (emergente, validado tras Bloques 3-5)
+
+Patrón iterativo que ha demostrado valor en los últimos sub-bloques:
+
+  Diseño → OK del usuario → Aplicación → OK del usuario → Verificación → OK del usuario → Commit → OK del usuario
+
+Reglas operativas observadas:
+
+1. **Pre-commit checks obligatorios**: `npm run build` + `npm run lint` antes de cerrar cualquier commit. Build incluye `tsc -b` (validación de tipos). Origen: lección incorporada tras `e879854` (push con lint en rojo que requirió hotfix `6d76b68`).
+2. **Verificación empírica antes de aplicar cambios sugeridos**. Patrón: cuando se ve algo aparentemente raro (línea duplicada, archivo extraño, proceso colgado), primero verificar con `grep` / `cat` / lectura del log; modificar solo tras confirmar la condición real. Lección consolidada: el "bug aparente" fue artefacto visual en 3 ocasiones distintas (commit C2 del 3.2.e, `target` en bootstrap, Vite "colgado" del Bloque 5).
+3. **Mensajes de commit detallados** con trazabilidad de decisiones `D-N` y `DUDA-N`, hashes referenciados, justificación de cambios técnicos. El commit debe permitir a un lector futuro entender el contexto sin abrir archivos adicionales.
+4. **Deuda explícita**: cuando se pospone una decisión, se anota inmediatamente como `TODO[nombre-descriptivo]` en §12 con contexto, qué resolvería y cuándo encaja.
+5. **Separación de scopes para scripts**: `apps/functions/scripts/` para testing infrastructure (`verify-*` que validan callables, `seed-*` que crean datos de prueba); `scripts/` raíz para operaciones CLI standalone (`bootstrap-*` para bootstrap del sistema). Cada tipo tiene perfil de fail-safe distinto: producción (6 capas en bootstrap), emulator-only (hardcoded en seed).
+6. **Working tree por commit**: stage explícito por archivo, nunca `git add -A` o `git add .`. Cada commit tiene propósito autocontenido.
+7. **Limpieza de procesos al cerrar sesión**: TaskStop por ID + verificación manual de huérfanos. El proceso `java` del Firestore emulator NO recibe el SIGTERM de Node y queda activo en cierres anteriores (3.2.c, 3.2.d, 3.2.e, 4, 5). Matar con `Stop-Process -Force` confirmando con CommandLine que es el Firestore correcto.
+8. **`--target` o equivalente sin default** para cualquier script CLI que pueda tocar producción. Forzar elección consciente del operador (capa 1 de fail-safe).
+9. **Sistema de auditoría con `creadoPor` en 3 niveles**: callable (uid real de `request.auth.uid`), bootstrap CLI (`'bootstrap-cli'`), testing seed (`'seed-test-user'`). Si en producción aparece `'seed-test-user'`, es alarma temprana de datos contaminados de testing.
+10. **Diagnóstico antes que kill**: cuando algo parece colgado, leer log antes de matar proceso. El primer paso de diagnóstico es siempre `tail` del log + `netstat`. Lección: Vite estuvo listo en 449ms; el poll script fallido buscaba string con escapes ANSI que nunca matcheaban.
