@@ -3,7 +3,7 @@ import * as logger from "firebase-functions/logger";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 
-import { COLLECTIONS } from "@albius/shared";
+import { COLLECTIONS } from "../collections";
 import { assertSuperAdmin } from "../auth-guards";
 import { validateCrearJefeTraficoPayload } from "../validation";
 import { assertTenantExists, assertCentroExistsInTenant } from "../refs";

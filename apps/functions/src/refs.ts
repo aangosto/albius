@@ -1,6 +1,6 @@
 import type { Firestore } from "firebase-admin/firestore";
 import { HttpsError } from "firebase-functions/v2/https";
-import { COLLECTIONS } from "@albius/shared";
+import { COLLECTIONS } from "./collections";
 
 /**
  * Verificación de existencia (o no-existencia) de referencias Firestore antes
