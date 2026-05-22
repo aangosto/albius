@@ -99,14 +99,15 @@ Si propones algo que contradice un punto de aquí, primero levanta la mano para 
 ## 11. Estado actual del proyecto
 
 **Hecho:**
-- Scaffold monorepo (npm workspaces): `apps/web`, `apps/functions` (vacío), `packages/shared`, `infrastructure/firestore` (vacío).
+- Scaffold monorepo (npm workspaces): `apps/web`, `apps/functions`, `packages/shared`, `infrastructure/firestore` (vacío).
 - `apps/web` operativa: React Router v7, AppLayout con Sidebar + Topbar, 10 páginas placeholder, login deshabilitado.
 - Tipos del modelo accesibles vía `@albius/shared`; CI/CD a Vercel activo desde `main`.
+- Cloud Functions Node con 3 callables (`ping`, `crearJefeTrafico`, `crearConductor`), helpers reutilizables (auth-guards, validación sin Zod por D4, refs Firestore), custom claims operativos en backend y scripts de verificación contra emulators (42 casos pasados).
 
 **No hecho:**
-- Firebase Auth, custom claims y reglas reales de Firestore.
+- Login en `apps/web` (sigue deshabilitado) y reglas reales de Firestore (`firestore.rules` sigue deny-all).
 - Persistencia: ningún CRUD ni funcionalidad de negocio (cuadrante, intercambios, incidencias…).
-- Cloud Functions y optimizador Python.
+- Optimizador Python en Cloud Run (V2).
 
 ## 12. Deuda técnica conocida (TODOs activos)
 
@@ -117,6 +118,13 @@ Pendientes asumidos conscientemente durante la construcción del proyecto, con e
 - `TODO[verificar-reglas-en-uso-real]` — validar empíricamente en Bloque 5 las ramas de `firestore.rules` (casos 8-15 del Rules Playground) que no se pudieron probar en su momento.
 - `TODO[refactor-zod]` — si los callables crecen a 10 o más, refactorizar validación de payloads a Zod.
 - Pendiente actualizar Node de 20.17 a 20.19+ cuando convenga (warn `EBADENGINE` de `eslint-visitor-keys`, no bloqueante).
+- `TODO[refactor-shared-build]` — compilar `@albius/shared` a JS con su propio paso de build, eliminar el módulo local `apps/functions/src/collections.ts` y volver a importar `COLLECTIONS` desde `@albius/shared`. Origen: commit `e879854` (sub-bloque 3.2.c). Hoy `shared` se distribuye como TypeScript crudo (`main: "./src/index.ts"`, `noEmit: true`), lo cual funciona en `apps/web` por el resolver de Vite pero no en `apps/functions` tras compilar a CJS. Requiere bloque dedicado: toca `packages/shared`, `apps/functions`, scripts de build raíz y posible verificación de Vite.
+- `TODO[email-transport]` — implementar transporte real de email para enviar el `linkPasswordReset` que devuelven los callables `crearJefeTrafico` (3.2.b) y `crearConductor` (3.2.d). Hoy el link queda en la respuesta del callable y el super_admin lo distribuye manualmente. Bloquea el flujo automático de alta de usuarios en producción. Decidir entre SendGrid, Resend, Firebase Extensions u otra alternativa antes del primer despliegue real.
+- `TODO[refactor-verify-helpers]` — extraer los helpers duplicados de `apps/functions/scripts/verify-crearJefeTrafico.mjs` y `verify-crearConductor.mjs` (`signInWithCustomToken`, `invokeCallable`, `checkEmulatorsUp`, `expectError`, `record`) a un módulo compartido. Origen: commit `af29340` (sub-bloque 3.2.e). Encaja cuando llegue el tercer script de verificación, previsiblemente en Bloque 4. Decisión pendiente: módulo `.mjs` auxiliar o migración a `.mts` con TypeScript (pipeline nueva: build / tsx / ts-node).
+- `TODO[refactor-ping-helpers]` — el callable `ping` del sub-bloque 3.1 (commit `d6f2540`) lee `request.auth.token` directamente para extraer el campo `rol`. Refactorizar para usar `extractClaims` y `assertAuth` de `apps/functions/src/auth-guards.ts` (introducidos después en 3.2.a, commit `348f77f`), simétrico al resto de callables. Deuda menor, sin urgencia.
+- `TODO[tipos-conductor-requeridos]` — revisar si los arrays `lineasPreferentes`, `lineasSecundarias` y `tiposTurnoPermitidos` del modelo `Conductor` (`packages/shared/src/types.ts`) deben permanecer required. El callable `crearConductor` los defaultea a `[]` cuando el payload los omite (DUDA-8 de 3.2.d, commit `e810832`). Si el dominio acepta "todavía no asignado" como estado natural, considerar marcarlos opcionales (`?`) para reflejar mejor el modelo conceptual.
+- `TODO[jefe-claims-incompletos]` — definir comportamiento cuando un token tiene `rol=jefe_trafico` pero falta `tenantId` o `centroId` en custom claims. Hoy `crearConductor` cae en el check anti cross-tenant con mensaje confuso (3.2.d): `claims.tenantId === undefined` siempre será distinto del `payload.tenantId`, lanzando "Un jefe de tráfico no puede crear conductores en otro tenant." cuando el problema real es alta incompleta. Decidir entre `permission-denied` con mensaje específico o `failed-precondition` simétrico a `assertJefeTrafico`.
+- `TODO[verify-cleanup-usuarios-huerfanos]` — los scripts `verify-crearJefeTrafico.mjs` y `verify-crearConductor.mjs` dejan documentos `/usuarios/{uid}` huérfanos en Firestore tras ejecuciones repetidas: el `uid` se regenera con cada `createUser` y los docs anteriores no se borran. No afectan funcionalmente (los tests no consultan esos docs), pero ensucian el estado del emulator. Añadir limpieza opcional al inicio (p.ej. borrar `/usuarios` con `creadoEn` > timestamp del seed) cuando se consolide la infra de testing. Encaja con `TODO[refactor-verify-helpers]`.
 
 ## 13. Decisiones del Bloque 3 (callables crearJefeTrafico + crearConductor)
 
@@ -128,4 +136,5 @@ Decisiones de diseño aprobadas durante la planificación del bloque y consolida
 - **D4 — Validación de payloads con type guards a mano.** En este bloque NO se introduce Zod: se valida cada campo con type guards y se lanza `invalid-argument` con mensaje claro al fallar. Si los callables crecen a 10 o más se refactoriza (ver `TODO[refactor-zod]` en §12).
 - **D5 — Sesión 3 partida en dos sub-sesiones por tamaño.** Bloque 3.1: scaffold del paquete `apps/functions` + callable `ping` (completado). Bloque 3.2: callables `crearJefeTrafico` y `crearConductor`.
 - **D6 — Verificación de existencia de referencias antes de crear.** `crearJefeTrafico` verifica que `/tenants/{tenantId}` y `/centros/{centroId}` existen. `crearConductor` verifica lo mismo y además que el `tenantId` del payload coincide con el `tenantId` del jefe que llama (anti cross-tenant). Si falla la verificación, devolver `invalid-argument` indicando qué referencia no existe.
+  - **Ampliación 3.2.d:** para `crearConductor` se verifica también que `claims.centroId === payload.centroId` cuando invoca un jefe (anti cross-centro), por simetría con la identidad operativa del jefe `(tenantId, centroId)`. Mensaje: "Un jefe de tráfico no puede crear conductores en otro centro." (DUDA-11 de 3.2.d). Sin esta ampliación, un jefe del centro A podría crear conductores en centro B del mismo tenant, lo cual es abuso de permisos. Implementación: commit `e810832`.
 - **D7 — Auditoría mínima en cada documento creado.** Los documentos nuevos en `/usuarios` y `/conductores` incluyen `creadoPor` (uid del invocador, `request.auth.uid`) y `creadoEn` (`FieldValue.serverTimestamp()`).
