@@ -34,11 +34,11 @@ albius/
 │   ├── web/                          ← React 19 + Vite 6 + TS + Tailwind 4 + shadcn/ui
 │   │   ├── src/
 │   │   │   ├── App.tsx, main.tsx, router.tsx
-│   │   │   ├── components/{layout,ui}/   ← Sidebar/Topbar + componentes shadcn
+│   │   │   ├── components/{auth,layout,ui}/  ← ProtectedRoute + Sidebar/Topbar + shadcn
 │   │   │   ├── contexts/AuthContext.tsx  ← Provider + hook useAuth (Firebase Auth Web SDK)
 │   │   │   ├── layouts/AppLayout.tsx
 │   │   │   ├── lib/                      ← firebase, auth-errors, navigation, utils
-│   │   │   ├── pages/                    ← 10 páginas (Login + 9 rutas autenticadas)
+│   │   │   ├── pages/                    ← 14 páginas (Login + 12 rutas autenticadas + NotFoundPage)
 │   │   │   └── index.css                 ← Tailwind v4 + tema shadcn
 │   │   └── .env.example                  ← plantilla VITE_FIREBASE_* + VITE_USE_EMULATORS
 │   └── functions/                    ← Cloud Functions Node
@@ -107,12 +107,13 @@ Si propones algo que contradice un punto de aquí, primero levanta la mano para 
 - Scaffold monorepo (npm workspaces): `apps/web`, `apps/functions`, `packages/shared`, `infrastructure/firestore` (vacío).
 - `apps/web` operativa: React Router v7, AppLayout con Sidebar + Topbar, 10 páginas placeholder, login deshabilitado.
 - Tipos del modelo accesibles vía `@albius/shared`; CI/CD a Vercel activo desde `main`.
-- Cloud Functions Node con 3 callables (`ping`, `crearJefeTrafico`, `crearConductor`), helpers reutilizables (auth-guards, validación sin Zod por D4, refs Firestore), custom claims operativos en backend y scripts de verificación contra emulators (42 casos pasados).
+- Cloud Functions Node con 3 callables (`ping`, `crearJefeTrafico`, `crearConductor`), helpers reutilizables (auth-guards, validación sin Zod por D3.4, refs Firestore), custom claims operativos en backend y scripts de verificación contra emulators (42 casos pasados).
 - Script CLI `scripts/bootstrap-super-admin.mjs` para alta de super_admins con 6 capas de fail-safe contra accidentes en producción (capas 1-3 verificadas empíricamente contra emulator con 11/11 casos; capas 4-6 deferred a verificación con Firebase real, ver `TODO[bootstrap-verify-production-layers]` en §12).
 - Login funcional en `apps/web` con `useAuth` hook + `AuthContext` (Firebase Auth Web SDK + `signInWithEmailAndPassword`). Soporta emulator local vía `VITE_USE_EMULATORS=true`. Verificación manual contra emulator OK: login con super_admin, signOut, persistencia de sesión tras reload, mensajes de error genéricos para credenciales inválidas (decisión de seguridad: no revelar si el email está registrado).
+- Routing protegido por auth y redirección por rol operativa (Bloque 6). `ProtectedRoute` como layout route gatea `status` + `user.rol`; `LoginPage` centraliza redirección post-login y redirect inverso con `homeForRol()`. Sidebar y Topbar leen `useAuth()`: sidebar muestra items por rol vía `NAV_BY_ROL` (super_admin con secciones Gobierno+Operativa, jefe_trafico con 7 items, conductor con 2), topbar muestra nombre/email + `ROL_LABEL` + signOut funcional. `ClaimsIncompletosView` para el edge case autenticado sin rol. 3 placeholders nuevos para super_admin (Tenants/Centros/Usuarios) + `NotFoundPage` catch-all con CTA inteligente. Eliminados `USUARIO_PLACEHOLDER` y `RolNavegacion` en favor de `Rol` del dominio (`@albius/shared` como SSOT). Seed extendido (`seed-test-user.mjs`) crea 4 users (super_admin/jefe_trafico/conductor/sinclaims) + docs de referencia (tenant/centro/conductor). 16/17 casos verificados contra emulator (caso 11 N/A justificado).
 
 **No hecho:**
-- Redirección por rol tras login + ProtectedRoute (Bloque 6) y forzado de cambio de password en primer login (Bloque 7).
+- Forzado de cambio de password en primer login (Bloque 7).
 - Reglas reales de Firestore (`firestore.rules` sigue deny-all).
 - Persistencia: ningún CRUD ni funcionalidad de negocio (cuadrante, intercambios, incidencias…).
 - Optimizador Python en Cloud Run (V2).
@@ -137,20 +138,28 @@ Pendientes asumidos conscientemente durante la construcción del proyecto, con e
 - `TODO[verify-full-password-reset-flow]` — verificar empíricamente el flujo COMPLETO del password reset link emitido por el bootstrap CLI con `generatePasswordResetLink`. Hoy solo se ha verificado con `apps/functions/scripts/seed-test-user.mjs` que usa password directo (atajo aceptable solo para testing en emulator, decidido durante el Bloque 5). Origen: Bloque 5. Encaja cuando exista transporte de email implementado (ver `TODO[email-transport]`) o cuando se valide manualmente siguiendo el link emitido por bootstrap CLI en emulator desde el navegador.
 - `TODO[web-bundle-splitting]` — el bundle JS de `apps/web` supera los 500 kB (610 kB / 172 kB gzip) por la combinación de Firebase Web SDK (~250 kB) + React 19 + lucide-react. Vite emite warning informativo cada build. Posibles soluciones: code-splitting por ruta con `React.lazy` + dynamic imports, configurar `manualChunks` para separar Firebase y React, o ajustar `chunkSizeWarningLimit`. Origen: Bloque 5 (verificado en PASO 4 de la sesión). Posponer hasta que el bundle crezca o el tiempo de carga sea perceptible en producción.
 - `TODO[remove-firebase-stubs]` — eliminar `packages/shared/src/firebase-stubs.ts`. Era un stub temporal con tipos `Timestamp` y `GeoPoint` mientras `@albius/shared` no integraba el Firebase SDK. Hoy `apps/web/src/lib/firebase.ts` (Web SDK) y `apps/functions/src/` (Admin SDK) están operativos; el stub ya no cumple función. Verificar que ningún tipo de `packages/shared` lo importe antes de borrar (grep actual: `types.ts` y `index.ts` lo referencian; migrar a importar tipos de `firebase/firestore` o `firebase-admin/firestore` directamente, o decidir si `@albius/shared` se mantiene neutral SDK). Origen: Bloque 5 (verificación de §5).
+- `TODO[topbar-tenant-centro-hidratado]` — Topbar muestra solo `ROL_LABEL` del usuario. Cuando exista hidratación de tenant/centro en `AuthContext` (Sesiones 4-7), refinar para mostrar 'ALSA Murcia · Centro Espinardo' en vez de solo 'Jefe de tráfico'. Origen: Bloque 6.
 
-## 13. Decisiones del Bloque 3 (callables crearJefeTrafico + crearConductor)
+## 13. Decisiones canónicas del proyecto
 
-Decisiones de diseño aprobadas durante la planificación del bloque y consolidadas aquí como referencia para la implementación y para futuros bloques que toquen los mismos callables.
+Decisiones de diseño aprobadas durante la planificación de cada bloque y consolidadas aquí como referencia para implementaciones futuras. Subdivididas por bloque. Las decisiones internas (no canónicas) viven en los mensajes de commit, no aquí.
 
-- **D1 — `conductorId` desacoplado del `uid` de Firebase Auth.** El identificador del conductor coincide con el número de empleado (información de negocio que debe sobrevivir a cambios de cuenta de Auth) y NO con el `uid` del documento `/usuarios`. El enlace usuario↔conductor se hace mediante el campo `conductorId` en el documento `/usuarios`.
-- **D2 — `crearConductor` crea `/usuarios` y `/conductores` atómicamente.** El callable escribe ambos documentos en una única operación. Si alguna de las dos escrituras falla, rollback completo (incluyendo el usuario de Firebase Auth si ya se creó). Un conductor sin sus dos documentos no es funcional.
-- **D3 — Contraseña inicial vía `generatePasswordResetLink`.** El email de configuración de contraseña se envía con `generatePasswordResetLink` del Admin SDK. NUNCA devolver contraseñas en la respuesta del callable ni escribirlas en logs. Si el usuario pierde el enlace, se repite el flujo desde super_admin.
-- **D4 — Validación de payloads con type guards a mano.** En este bloque NO se introduce Zod: se valida cada campo con type guards y se lanza `invalid-argument` con mensaje claro al fallar. Si los callables crecen a 10 o más se refactoriza (ver `TODO[refactor-zod]` en §12).
-- **D5 — Sesión 3 partida en dos sub-sesiones por tamaño.** Bloque 3.1: scaffold del paquete `apps/functions` + callable `ping` (completado). Bloque 3.2: callables `crearJefeTrafico` y `crearConductor`.
-- **D6 — Verificación de existencia de referencias antes de crear.** `crearJefeTrafico` verifica que `/tenants/{tenantId}` y `/centros/{centroId}` existen. `crearConductor` verifica lo mismo y además que el `tenantId` del payload coincide con el `tenantId` del jefe que llama (anti cross-tenant). Si falla la verificación, devolver `invalid-argument` indicando qué referencia no existe.
+### Bloque 3 — callables crearJefeTrafico + crearConductor
+
+- **D3.1 — `conductorId` desacoplado del `uid` de Firebase Auth.** El identificador del conductor coincide con el número de empleado (información de negocio que debe sobrevivir a cambios de cuenta de Auth) y NO con el `uid` del documento `/usuarios`. El enlace usuario↔conductor se hace mediante el campo `conductorId` en el documento `/usuarios`.
+- **D3.2 — `crearConductor` crea `/usuarios` y `/conductores` atómicamente.** El callable escribe ambos documentos en una única operación. Si alguna de las dos escrituras falla, rollback completo (incluyendo el usuario de Firebase Auth si ya se creó). Un conductor sin sus dos documentos no es funcional.
+- **D3.3 — Contraseña inicial vía `generatePasswordResetLink`.** El email de configuración de contraseña se envía con `generatePasswordResetLink` del Admin SDK. NUNCA devolver contraseñas en la respuesta del callable ni escribirlas en logs. Si el usuario pierde el enlace, se repite el flujo desde super_admin.
+- **D3.4 — Validación de payloads con type guards a mano.** En este bloque NO se introduce Zod: se valida cada campo con type guards y se lanza `invalid-argument` con mensaje claro al fallar. Si los callables crecen a 10 o más se refactoriza (ver `TODO[refactor-zod]` en §12).
+- **D3.5 — Sesión 3 partida en dos sub-sesiones por tamaño.** Bloque 3.1: scaffold del paquete `apps/functions` + callable `ping` (completado). Bloque 3.2: callables `crearJefeTrafico` y `crearConductor`.
+- **D3.6 — Verificación de existencia de referencias antes de crear.** `crearJefeTrafico` verifica que `/tenants/{tenantId}` y `/centros/{centroId}` existen. `crearConductor` verifica lo mismo y además que el `tenantId` del payload coincide con el `tenantId` del jefe que llama (anti cross-tenant). Si falla la verificación, devolver `invalid-argument` indicando qué referencia no existe.
   - **Ampliación 3.2.d:** para `crearConductor` se verifica también que `claims.centroId === payload.centroId` cuando invoca un jefe (anti cross-centro), por simetría con la identidad operativa del jefe `(tenantId, centroId)`. Mensaje: "Un jefe de tráfico no puede crear conductores en otro centro." (DUDA-11 de 3.2.d). Sin esta ampliación, un jefe del centro A podría crear conductores en centro B del mismo tenant, lo cual es abuso de permisos. Implementación: commit `e810832`.
-- **D7 — Auditoría mínima en cada documento creado.** Los documentos nuevos en `/usuarios` y `/conductores` incluyen `creadoPor` (uid del invocador, `request.auth.uid`) y `creadoEn` (`FieldValue.serverTimestamp()`).
+- **D3.7 — Auditoría mínima en cada documento creado.** Los documentos nuevos en `/usuarios` y `/conductores` incluyen `creadoPor` (uid del invocador, `request.auth.uid`) y `creadoEn` (`FieldValue.serverTimestamp()`).
   - **Ampliación Bloque 4:** bootstrap CLI usa `creadoPor: 'bootstrap-cli'` como valor convencional al no existir `request.auth.uid` (script ejecutado fuera del flujo callable, sin invocador autenticado). Implementación: `scripts/bootstrap-super-admin.mjs`. Grep-eable para localizar todos los super_admins creados por bootstrap CLI vs por callables (que tendrían un uid real en `creadoPor`).
+
+### Bloque 6 — routing protegido + sidebar por rol
+
+- **D6.1 — ProtectedRoute solo gatea autenticación, no rol específico de ruta.** Defensa en profundidad por capas: UI (sidebar oculta items que el rol no debe ver, mejora UX), routing (`<ProtectedRoute/>` valida status+user.rol, evita accidentes con URL bar), backend (reglas Firestore rechazarán lecturas cuando lleguen en sesiones 4+, ÚNICA capa de defensa real). Si surge necesidad de `RoleGate` explícito por ruta, sub-bloque aparte sin tocar este contrato.
+- **D6.5 — `homeForRol(rol)` agnóstico al destino.** Mapping `ROL_HOME: Record<Rol, string>` desacopla la convención. Añadir un cuarto rol futuro (ej. `inspector`) requiere solo añadir entrada al record, sin tocar `LoginPage`, `ProtectedRoute` ni `NotFoundPage`.
 
 ## 14. Procedimiento de trabajo (emergente, validado tras Bloques 3-5)
 

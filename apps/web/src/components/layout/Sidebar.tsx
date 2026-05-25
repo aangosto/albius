@@ -1,13 +1,16 @@
 import { NavLink } from 'react-router-dom';
-import { NAV_ITEMS, type NavItem } from '@/lib/navigation';
+import { useAuth } from '@/contexts/AuthContext';
+import { NAV_BY_ROL, type NavItem } from '@/lib/navigation';
 import { cn } from '@/lib/utils';
 
-function NavSection({ title, items }: { title: string; items: NavItem[] }) {
+function NavSection({ title, items }: { title?: string; items: NavItem[] }) {
   return (
     <div className="py-2">
-      <div className="px-6 pt-3 pb-2 text-[10px] font-mono uppercase tracking-[0.18em] text-white/40">
-        {title}
-      </div>
+      {title && (
+        <div className="px-6 pt-3 pb-2 text-[10px] font-mono uppercase tracking-[0.18em] text-white/40">
+          {title}
+        </div>
+      )}
       {items.map((item) => {
         const Icon = item.icon;
         return (
@@ -33,8 +36,13 @@ function NavSection({ title, items }: { title: string; items: NavItem[] }) {
 }
 
 export default function Sidebar() {
-  const jefeItems = NAV_ITEMS.filter((i) => i.rol === 'jefe');
-  const conductorItems = NAV_ITEMS.filter((i) => i.rol === 'conductor');
+  const { user } = useAuth();
+  // Defensa: ProtectedRoute garantiza que solo llegamos aquí con user.rol válido.
+  if (!user?.rol) return null;
+
+  const sections = NAV_BY_ROL[user.rol];
+  // Solo se muestran títulos cuando hay >1 sección (super_admin).
+  const showTitles = sections.length > 1;
 
   return (
     <aside className="hidden md:flex flex-col w-60 text-white bg-[#0E2A47]">
@@ -42,8 +50,13 @@ export default function Sidebar() {
         albius<span className="text-[#2E75B6]">.</span>
       </div>
       <nav className="flex-1 overflow-y-auto">
-        <NavSection title="Jefe de tráfico" items={jefeItems} />
-        <NavSection title="Conductor" items={conductorItems} />
+        {sections.map((section, idx) => (
+          <NavSection
+            key={idx}
+            title={showTitles ? section.title : undefined}
+            items={section.items}
+          />
+        ))}
       </nav>
     </aside>
   );

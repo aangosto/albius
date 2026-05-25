@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
+import { Navigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -10,17 +11,18 @@ import {
 } from '@/components/ui/card';
 import { useAuth, type AuthUser } from '@/contexts/AuthContext';
 import { mapAuthError } from '@/lib/auth-errors';
+import { homeForRol } from '@/lib/navigation';
 
 /**
  * Página de login.
  *
- * Tres sub-vistas según el estado de auth global:
- *   - loading        → shell mínimo "Cargando…" mientras se resuelve la
- *                      sesión persistida.
- *   - authenticated  → tarjeta "Logueado correctamente" con email/rol/uid
- *                      + botón "Cerrar sesión". Vista TEMPORAL del Bloque 5;
- *                      Bloque 6 reemplazará por redirección por rol.
- *   - unauthenticated→ formulario email/password.
+ * Cuatro caminos según el estado de auth global:
+ *   - loading                              → splash mínimo.
+ *   - authenticated + user.rol válido      → redirige al home del rol
+ *                                            (cubre login exitoso y redirect
+ *                                             inverso si ya estaba logueado).
+ *   - authenticated + user sin claims rol  → ClaimsIncompletosView.
+ *   - unauthenticated                      → formulario.
  */
 export default function LoginPage() {
   const { status, user, signIn, signOut } = useAuth();
@@ -29,8 +31,12 @@ export default function LoginPage() {
     return <LoadingShell />;
   }
 
-  if (status === 'authenticated' && user) {
-    return <AuthenticatedView user={user} onSignOut={signOut} />;
+  if (status === 'authenticated' && user?.rol) {
+    return <Navigate to={homeForRol(user.rol)} replace />;
+  }
+
+  if (status === 'authenticated' && user && !user.rol) {
+    return <ClaimsIncompletosView user={user} onSignOut={signOut} />;
   }
 
   return <LoginForm onSignIn={signIn} />;
@@ -52,7 +58,7 @@ function LoadingShell() {
   );
 }
 
-function AuthenticatedView({
+function ClaimsIncompletosView({
   user,
   onSignOut,
 }: {
@@ -67,8 +73,7 @@ function AuthenticatedView({
     setSigningOut(true);
     try {
       await onSignOut();
-      // Si éxito, onAuthStateChanged cambia el render automáticamente.
-      // NO reseteamos signingOut: el componente se desmonta al cambiar de sub-vista.
+      // onAuthStateChanged actualiza el estado y este componente se desmonta.
     } catch (err) {
       console.error('[auth] signOut error:', err);
       setError('Error cerrando sesión. Inténtalo de nuevo.');
@@ -83,31 +88,19 @@ function AuthenticatedView({
           <CardTitle className="text-3xl">
             albius<span className="text-[#2E75B6]">.</span>
           </CardTitle>
-          <CardDescription>Logueado correctamente</CardDescription>
+          <CardDescription>Cuenta sin rol asignado</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3 text-sm">
-          <div>
-            <span className="text-muted-foreground">Email:</span>{' '}
-            <span>{user.email ?? '(sin email)'}</span>
-          </div>
-          <div>
-            <span className="text-muted-foreground">Rol:</span>{' '}
-            <span>{user.rol ?? '(sin rol)'}</span>
-          </div>
-          <div>
-            <span className="text-muted-foreground">UID:</span>{' '}
-            <span className="font-mono text-xs break-all">{user.uid}</span>
-          </div>
+          <p className="text-muted-foreground">
+            Tu cuenta ({user.email ?? 'sin email'}) no tiene un rol asignado.
+            Contacta con administración para completar el alta.
+          </p>
           {error && (
-            <p role="alert" className="text-destructive text-xs pt-1">
+            <p role="alert" className="text-destructive text-xs">
               {error}
             </p>
           )}
-          <Button
-            onClick={handleSignOut}
-            disabled={signingOut}
-            variant="outline"
-          >
+          <Button onClick={handleSignOut} disabled={signingOut} variant="outline">
             {signingOut ? 'Cerrando…' : 'Cerrar sesión'}
           </Button>
         </CardContent>
@@ -133,8 +126,9 @@ function LoginForm({
     setSubmitting(true);
     try {
       await onSignIn(email, password);
-      // Si éxito, onAuthStateChanged cambia el render automáticamente.
-      // NO reseteamos submitting: el componente se desmonta al cambiar de sub-vista.
+      // Si éxito, onAuthStateChanged actualiza status y LoginPage devuelve
+      // el <Navigate> al home del rol. NO reseteamos submitting: el
+      // componente se desmonta al cambiar de vista.
     } catch (err) {
       const code = (err as { code?: string }).code ?? '';
       console.error('[auth] signIn error:', code, err);
