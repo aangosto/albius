@@ -48,7 +48,7 @@ albius/
 │   └── shared/                       ← @albius/shared — tipos del modelo (firebase-stubs.ts legacy pendiente de retirar, ver §12)
 ├── scripts/                          ← scripts CLI standalone (bootstrap-super-admin.mjs)
 ├── infrastructure/
-│   └── firestore/                    ← PLACEHOLDER (reglas deny-all, índices vacíos)
+│   └── firestore/                    ← reglas activas para 4 colecciones (tenants, centros, usuarios, conductores) + helpers de auth; resto deny-all
 ├── docs/                             ← ver §7
 ├── package.json                      ← npm workspaces
 ├── tsconfig.base.json                ← strict + noUncheckedIndexedAccess + noImplicitOverride
@@ -110,11 +110,12 @@ Si propones algo que contradice un punto de aquí, primero levanta la mano para 
 - Cloud Functions Node con 3 callables (`ping`, `crearJefeTrafico`, `crearConductor`), helpers reutilizables (auth-guards, validación sin Zod por D3.4, refs Firestore), custom claims operativos en backend y scripts de verificación contra emulators (42 casos pasados).
 - Script CLI `scripts/bootstrap-super-admin.mjs` para alta de super_admins con 6 capas de fail-safe contra accidentes en producción (capas 1-3 verificadas empíricamente contra emulator con 11/11 casos; capas 4-6 deferred a verificación con Firebase real, ver `TODO[bootstrap-verify-production-layers]` en §12).
 - Login funcional en `apps/web` con `useAuth` hook + `AuthContext` (Firebase Auth Web SDK + `signInWithEmailAndPassword`). Soporta emulator local vía `VITE_USE_EMULATORS=true`. Verificación manual contra emulator OK: login con super_admin, signOut, persistencia de sesión tras reload, mensajes de error genéricos para credenciales inválidas (decisión de seguridad: no revelar si el email está registrado).
+- Reglas Firestore activas para 4 colecciones (tenants, centros, usuarios, conductores) con helpers `isSuperAdmin`/`isJefeTrafico`/`ownerOfDoc`/`sameTenant` y aislamiento por tenant. El resto del modelo tiene deny-all explícito por colección. Origen: previo a Bloque 6 (no rastreado en historial granular del proyecto; descubierto durante PASO 3 del Bloque 7).
 - Routing protegido por auth y redirección por rol operativa (Bloque 6). `ProtectedRoute` como layout route gatea `status` + `user.rol`; `LoginPage` centraliza redirección post-login y redirect inverso con `homeForRol()`. Sidebar y Topbar leen `useAuth()`: sidebar muestra items por rol vía `NAV_BY_ROL` (super_admin con secciones Gobierno+Operativa, jefe_trafico con 7 items, conductor con 2), topbar muestra nombre/email + `ROL_LABEL` + signOut funcional. `ClaimsIncompletosView` para el edge case autenticado sin rol. 3 placeholders nuevos para super_admin (Tenants/Centros/Usuarios) + `NotFoundPage` catch-all con CTA inteligente. Eliminados `USUARIO_PLACEHOLDER` y `RolNavegacion` en favor de `Rol` del dominio (`@albius/shared` como SSOT). Seed extendido (`seed-test-user.mjs`) crea 4 users (super_admin/jefe_trafico/conductor/sinclaims) + docs de referencia (tenant/centro/conductor). 16/17 casos verificados contra emulator (caso 11 N/A justificado).
+- Forzado de cambio de password en primer login operativo (Bloque 7). AuthContext hidrata el flag `passwordChangeRequired` leyendo `/usuarios/{uid}` con Firebase Web SDK directamente (apoyado en regla `ownerOfDoc` existente). ProtectedRoute añade dos gates: usuarios con flag=true son enviados a `/cambiar-password` antes de cualquier otra ruta privada; usuarios sin flag intentando entrar son redirigidos al home (gate inverso filtra cambio voluntario). CambiarPasswordPage full-screen fuera de AppLayout, form con mínimo 10 caracteres + confirmación + manejo de `auth/weak-password` y `auth/requires-recent-login`. Callable `marcarPasswordCambiada` idempotente cierra el ciclo (pone flag=false + registra `passwordCambiadaEn`). `refreshAuthUser()` en AuthContext re-lee /usuarios tras mutación server-side. Refactor del seed parametriza el flag por user (`jefe`=true verifica Bloque 7; `admin`/`conductor`=false para tests rápidos de Bloque 6). Modelo `Usuario` extendido con `passwordCambiadaEn?: Timestamp`. **Sesión 3 completa.**
 
 **No hecho:**
-- Forzado de cambio de password en primer login (Bloque 7).
-- Reglas reales de Firestore (`firestore.rules` sigue deny-all).
+- Reglas Firestore para el resto de colecciones (cuadrantes, líneas, intercambios, etc.) — pendientes de los CRUDs de Sesiones 4-7.
 - Persistencia: ningún CRUD ni funcionalidad de negocio (cuadrante, intercambios, incidencias…).
 - Optimizador Python en Cloud Run (V2).
 
@@ -124,7 +125,9 @@ Pendientes asumidos conscientemente durante la construcción del proyecto, con e
 
 - `TODO[firebase-json-runtime-explicito]` — añadir `"runtime": "nodejs20"` al bloque `functions` de `firebase.json` antes del primer deploy real. Revisar en Bloque 5/6.
 - `TODO[deuda-tecnica-deps-firebase]` — cluster de 9 vulnerabilidades `low` transitivas en `firebase-admin` → `@google-cloud/firestore` → `google-gax` → `retry-request` → `teeny-request` → `http-proxy-agent` → `@tootallnate/once`. `npm audit fix --force` bajaría `firebase-admin` a v10 (breaking change). Postpuesto hasta que Firebase publique nuevas versiones del SDK con las deps actualizadas.
-- `TODO[verificar-reglas-en-uso-real]` — validar empíricamente en Bloque 5 las ramas de `firestore.rules` (casos 8-15 del Rules Playground) que no se pudieron probar en su momento.
+- `TODO[verificar-reglas-en-uso-real]` — Reglas Firestore activas verificadas implícitamente en runtime:
+  - ✅ /usuarios read self-only (Bloque 7, AuthContext)
+  - ⏳ /tenants, /centros, /conductores (pendientes de CRUDs en Sesiones 4-7)
 - `TODO[refactor-zod]` — si los callables crecen a 10 o más, refactorizar validación de payloads a Zod.
 - Pendiente actualizar Node de 20.17 a 20.19+ cuando convenga (warn `EBADENGINE` de `eslint-visitor-keys`, no bloqueante).
 - `TODO[refactor-shared-build]` — compilar `@albius/shared` a JS con su propio paso de build, eliminar el módulo local `apps/functions/src/collections.ts` y volver a importar `COLLECTIONS` desde `@albius/shared`. Origen: commit `e879854` (sub-bloque 3.2.c). Hoy `shared` se distribuye como TypeScript crudo (`main: "./src/index.ts"`, `noEmit: true`), lo cual funciona en `apps/web` por el resolver de Vite pero no en `apps/functions` tras compilar a CJS. Requiere bloque dedicado: toca `packages/shared`, `apps/functions`, scripts de build raíz y posible verificación de Vite.
@@ -136,9 +139,29 @@ Pendientes asumidos conscientemente durante la construcción del proyecto, con e
 - `TODO[verify-cleanup-usuarios-huerfanos]` — los scripts `verify-crearJefeTrafico.mjs` y `verify-crearConductor.mjs` dejan documentos `/usuarios/{uid}` huérfanos en Firestore tras ejecuciones repetidas: el `uid` se regenera con cada `createUser` y los docs anteriores no se borran. No afectan funcionalmente (los tests no consultan esos docs), pero ensucian el estado del emulator. Añadir limpieza opcional al inicio (p.ej. borrar `/usuarios` con `creadoEn` > timestamp del seed) cuando se consolide la infra de testing. Encaja con `TODO[refactor-verify-helpers]`.
 - `TODO[bootstrap-verify-production-layers]` — verificar empíricamente las capas 4 (banner production), 5 (confirmación 'CONFIRMAR' interactiva) y 6 (project ID = albius-cbdb1) del script `scripts/bootstrap-super-admin.mjs`. Origen: Bloque 4 (alta de super_admin). Hoy están probadas solo por inspección de código + revisión de mensajes; las capas 1-3 sí se verificaron empíricamente (11/11 casos contra emulator). Verificación empírica de 4-6 requiere ejecución contra Firebase real, pospuesta al Bloque 18 (deploy) o equivalente.
 - `TODO[verify-full-password-reset-flow]` — verificar empíricamente el flujo COMPLETO del password reset link emitido por el bootstrap CLI con `generatePasswordResetLink`. Hoy solo se ha verificado con `apps/functions/scripts/seed-test-user.mjs` que usa password directo (atajo aceptable solo para testing en emulator, decidido durante el Bloque 5). Origen: Bloque 5. Encaja cuando exista transporte de email implementado (ver `TODO[email-transport]`) o cuando se valide manualmente siguiendo el link emitido por bootstrap CLI en emulator desde el navegador.
-- `TODO[web-bundle-splitting]` — el bundle JS de `apps/web` supera los 500 kB (610 kB / 172 kB gzip) por la combinación de Firebase Web SDK (~250 kB) + React 19 + lucide-react. Vite emite warning informativo cada build. Posibles soluciones: code-splitting por ruta con `React.lazy` + dynamic imports, configurar `manualChunks` para separar Firebase y React, o ajustar `chunkSizeWarningLimit`. Origen: Bloque 5 (verificado en PASO 4 de la sesión). Posponer hasta que el bundle crezca o el tiempo de carga sea perceptible en producción.
+- `TODO[web-bundle-splitting]` — **PRIORITARIO** (promovido de baja en Bloque 7).
+
+  Estado actual:
+  - Bundle principal: 804 kB tras Bloque 7 (vs 615 kB tras Bloque 6, +189 kB por `firebase/functions` SDK + deps transitivas gRPC/Protobuf)
+  - Umbral Vite warning (500 kB) cruzado desde Bloque 5
+  - Umbral "obligatorio" auto-impuesto (700 kB) cruzado en Bloque 7
+
+  Plan de ataque (sub-bloque dedicado, Sesión 4 o 5):
+  1. Analizar bundle con `vite-bundle-visualizer` para identificar top consumidores
+  2. Code-splitting por ruta (`React.lazy` + `Suspense`) para páginas pesadas
+  3. Considerar `manualChunks` en `vite.config.ts` para separar firebase en chunk vendor propio
+  4. Objetivo: bundle principal <500 kB, lazy chunks <200 kB cada uno
+
+  Justificación de no abordarlo en Bloque 7:
+  - Cerrar Sesión 3 es prioridad
+  - 804 kB funciona y se despliega
+  - Solución completa requiere arquitectura, no parche local
+
+  Origen: Bloque 7 PASO 4 (crecimiento por `firebase/functions` SDK).
 - `TODO[remove-firebase-stubs]` — eliminar `packages/shared/src/firebase-stubs.ts`. Era un stub temporal con tipos `Timestamp` y `GeoPoint` mientras `@albius/shared` no integraba el Firebase SDK. Hoy `apps/web/src/lib/firebase.ts` (Web SDK) y `apps/functions/src/` (Admin SDK) están operativos; el stub ya no cumple función. Verificar que ningún tipo de `packages/shared` lo importe antes de borrar (grep actual: `types.ts` y `index.ts` lo referencian; migrar a importar tipos de `firebase/firestore` o `firebase-admin/firestore` directamente, o decidir si `@albius/shared` se mantiene neutral SDK). Origen: Bloque 5 (verificación de §5).
-- `TODO[topbar-tenant-centro-hidratado]` — Topbar muestra solo `ROL_LABEL` del usuario. Cuando exista hidratación de tenant/centro en `AuthContext` (Sesiones 4-7), refinar para mostrar 'ALSA Murcia · Centro Espinardo' en vez de solo 'Jefe de tráfico'. Origen: Bloque 6.
+- `TODO[topbar-tenant-centro-hidratado]` — Topbar muestra solo `ROL_LABEL` del usuario. Cuando exista hidratación de tenant/centro en `AuthContext` (Sesiones 4-7), refinar para mostrar 'ALSA Murcia · Centro Espinardo' en vez de solo 'Jefe de tráfico'. Origen: Bloque 6. Patrón a seguir: D7.3 + D7.9 (extender `fetchUsuarioDoc` o equivalente, exponer en `AuthUser`, usar `refreshAuthUser()` si requiere refresh).
+- `TODO[double-password-change-en-callables]` — los callables `crearJefeTrafico` y `crearConductor` y el bootstrap CLI dejan `passwordChangeRequired=true` al alta Y emiten `linkPasswordReset` con `generatePasswordResetLink`. Cuando un usuario real complete el link reset (set password vía Firebase Auth UI) y haga login, ProtectedRoute lo enviará a `/cambiar-password` y cambiará la contraseña **dos veces**. UX wart en producción. Alternativas a considerar: (a) flipear el flag durante el reset link flow (Firebase no notifica al backend, requeriría tracking lateral); (b) cambiar callables/bootstrap para set `passwordChangeRequired=false` por defecto y dejar que el link sea la única ceremonia; (c) detectar "first login" por `ultimoLogin` ausente en lugar del flag. NO bloquea Bloque 7 (los users seed con flag=true funcionan porque no usan link, usan password directo). Surface en producción cuando se cierre `TODO[email-transport]`. Origen: descubrimiento durante PASO 3 del Bloque 7.
+- `TODO[firebase-region]` — actualmente `us-central1` por default de Firebase en `apps/web/src/lib/firebase.ts` (`getFunctions(firebaseApp, 'us-central1')`). Considerar `europe-west1` cuando se despliegue a producción real, para reducir latencia desde España (~80 ms vs ~150 ms desde Europa hacia US-central). Cambio coordinado: también hay que desplegar los callables a esa región (`apps/functions`). Origen: Bloque 7.
 
 ## 13. Decisiones canónicas del proyecto
 
@@ -160,6 +183,11 @@ Decisiones de diseño aprobadas durante la planificación de cada bloque y conso
 
 - **D6.1 — ProtectedRoute solo gatea autenticación, no rol específico de ruta.** Defensa en profundidad por capas: UI (sidebar oculta items que el rol no debe ver, mejora UX), routing (`<ProtectedRoute/>` valida status+user.rol, evita accidentes con URL bar), backend (reglas Firestore rechazarán lecturas cuando lleguen en sesiones 4+, ÚNICA capa de defensa real). Si surge necesidad de `RoleGate` explícito por ruta, sub-bloque aparte sin tocar este contrato.
 - **D6.5 — `homeForRol(rol)` agnóstico al destino.** Mapping `ROL_HOME: Record<Rol, string>` desacopla la convención. Añadir un cuarto rol futuro (ej. `inspector`) requiere solo añadir entrada al record, sin tocar `LoginPage`, `ProtectedRoute` ni `NotFoundPage`.
+
+### Bloque 7 — forzado de cambio de password en primer login
+
+- **D7.3 — `refreshAuthUser()` en AuthContext re-lee el doc `/usuarios` y actualiza `user` state.** Establece patrón canónico: cualquier mutación server-side que el frontend deba reflejar en estado inmediato se canaliza por este método. Aplicable a hidrataciones futuras (tenant/centro en Topbar — ver `TODO[topbar-tenant-centro-hidratado]`) y a estados que dependan del doc `/usuarios`.
+- **D7.9 — Hidratación de AuthContext lee `/usuarios/{uid}` directamente con Firebase Web SDK, apoyándose en la regla self-only existente (`ownerOfDoc(uid)`) en `firestore.rules`.** Establece patrón canónico: las hidrataciones del frontend (tenant/centro pendientes, mi-horario, CRUDs en Sesiones 4+) leerán Firestore directamente apoyándose en reglas declarativas, NO en callables hidratadores. Tocar la regla `read` self-only sobre `/usuarios` rompe el flujo de login del Bloque 7 (hay un comentario explicativo encima de la regla en `firestore.rules`).
 
 ## 14. Procedimiento de trabajo (emergente, validado tras Bloques 3-5)
 

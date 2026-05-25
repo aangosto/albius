@@ -15,6 +15,7 @@ import TenantsPage from '@/pages/TenantsPage';
 import CentrosPage from '@/pages/CentrosPage';
 import UsuariosPage from '@/pages/UsuariosPage';
 import NotFoundPage from '@/pages/NotFoundPage';
+import CambiarPasswordPage from '@/pages/CambiarPasswordPage';
 
 export const router = createBrowserRouter([
   {
@@ -28,6 +29,7 @@ export const router = createBrowserRouter([
   {
     element: <ProtectedRoute />,
     children: [
+      { path: '/cambiar-password', element: <CambiarPasswordPage /> },
       {
         element: <AppLayout />,
         children: [

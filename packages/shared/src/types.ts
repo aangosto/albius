@@ -209,6 +209,7 @@ export interface Usuario {
   conductorId?: string; // Solo si rol = conductor
   estado: EstadoUsuario;
   passwordChangeRequired?: boolean; // true si el usuario debe cambiar la contraseña en el próximo login (típico tras alta inicial).
+  passwordCambiadaEn?: Timestamp; // timestamp en que el usuario completó el flujo de Bloque 7 (CambiarPasswordPage + callable marcarPasswordCambiada). Ausente si nunca se completó (legados o seed de testing sin paso por el flujo).
   fechaCreacion: Timestamp;
   ultimoLogin?: Timestamp;
   tokensFCM?: string[]; // Tokens de dispositivos para push notifications

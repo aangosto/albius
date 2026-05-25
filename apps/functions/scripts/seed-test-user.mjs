@@ -1,28 +1,43 @@
 // seed-test-user.mjs
 //
-// Crea 4 usuarios de testing en el Auth emulator para verificar el Bloque 6:
-//   1. admin@albius.local      → rol=super_admin           (sin tenantId/centroId)
-//   2. jefe@albius.local       → rol=jefe_trafico          (tenant-test, centro-test)
-//   3. conductor@albius.local  → rol=conductor             (tenant-test, centro-test)
-//   4. sinclaims@albius.local  → SIN custom claims         (simula alta incompleta)
+// Crea 4 usuarios de testing en el Auth emulator para verificar Bloques 6+7:
+//   1. admin@albius.local      → rol=super_admin            (sin tenantId/centroId)
+//                                passwordChangeRequired=false (instant login)
+//   2. jefe@albius.local       → rol=jefe_trafico           (tenant-test, centro-test)
+//                                passwordChangeRequired=true  (verifica flujo Bloque 7)
+//   3. conductor@albius.local  → rol=conductor              (tenant-test, centro-test)
+//                                passwordChangeRequired=false (instant login)
+//   4. sinclaims@albius.local  → SIN custom claims, sin /usuarios doc
+//                                (simula alta incompleta, ClaimsIncompletosView)
+//
+// Asimetría del flag (D7.8 del Bloque 7):
+//   - `jefe` es el sujeto de verificación de Bloque 7: tras login va a
+//     /cambiar-password antes de poder usar la app.
+//   - `admin` y `conductor` mantienen flag=false para tests rápidos de Bloque 6
+//     (login → home del rol sin pasar por /cambiar-password).
 //
 // Cada user con rol obtiene además su documento /usuarios/{uid} con
-// creadoPor='seed-test-user'. El user sinclaims se crea SOLO en Auth (sin
-// /usuarios doc), modelando el escenario que LoginPage cubre con
-// ClaimsIncompletosView.
+// creadoPor='seed-test-user' (§14 regla 9). El user sinclaims se crea SOLO
+// en Auth (sin /usuarios doc), modelando el escenario que LoginPage cubre
+// con ClaimsIncompletosView.
 //
 // Docs de referencia para que el modelo sea consistente (D9 Bloque 6):
 //   - /tenants/tenant-test
 //   - /centros/centro-test
 //   - /conductores/conductor-test  (asociado al user conductor@albius.local)
 //
+// IMPORTANTE para testing Bloque 7: relanza este script si necesitas
+// resetear el flag de `jefe` a true tras completar el flujo durante una
+// sesión de testing. La sentencia .set() sobre /usuarios/{uid} sobreescribe
+// el doc entero, garantizando estado inicial.
+//
 // EMULATOR ONLY: env vars hardcodeadas al inicio para impedir uso contra
 // Firebase real. Producción usa siempre el bootstrap CLI con
-// generatePasswordResetLink (D3 del Bloque 3).
+// generatePasswordResetLink (D3.3 del Bloque 3).
 //
 // TODO[verify-full-password-reset-flow]: para verificar el flujo COMPLETO de
-// password reset link (Bloque 5 Opción 1) usar el bootstrap CLI y seguir el
-// link en el navegador. Este seed usa password directo: atajo de testing.
+// password reset link usar el bootstrap CLI y seguir el link en el navegador.
+// Este seed usa password directo: atajo de testing.
 //
 // Uso:
 //   node apps/functions/scripts/seed-test-user.mjs
@@ -53,6 +68,7 @@ const USERS = [
     tenantId: null,
     centroId: null,
     conductorId: null,
+    passwordChangeRequired: false, // instant login para tests Bloque 6
   },
   {
     email: "jefe@albius.local",
@@ -62,6 +78,7 @@ const USERS = [
     tenantId: TENANT_ID,
     centroId: CENTRO_ID,
     conductorId: null,
+    passwordChangeRequired: true, // verifica flujo Bloque 7
   },
   {
     email: "conductor@albius.local",
@@ -71,6 +88,7 @@ const USERS = [
     tenantId: TENANT_ID,
     centroId: CENTRO_ID,
     conductorId: CONDUCTOR_ID,
+    passwordChangeRequired: false, // instant login para tests Bloque 6
   },
   {
     email: "sinclaims@albius.local",
@@ -80,6 +98,7 @@ const USERS = [
     tenantId: null,
     centroId: null,
     conductorId: null,
+    // sin /usuarios doc → flag no aplica
   },
 ];
 
@@ -130,10 +149,7 @@ await db.collection("tenants").doc(TENANT_ID).set({
   plan: "basico",
   estado: "activo",
   fechaAlta: FieldValue.serverTimestamp(),
-  configuracion: {
-    zonaHoraria: "Europe/Madrid",
-    idioma: "es",
-  },
+  configuracion: { zonaHoraria: "Europe/Madrid", idioma: "es" },
   creadoPor: "seed-test-user",
   creadoEn: FieldValue.serverTimestamp(),
 });
@@ -173,10 +189,9 @@ for (const spec of USERS) {
       nombreCompleto: spec.nombre,
       rol: spec.rol,
       estado: "activo",
-      // Atajo de testing: el password se setea directamente, no requiere
-      // reset previo. En producción (bootstrap CLI / callables) el flujo es
-      // distinto y passwordChangeRequired=true al alta.
-      passwordChangeRequired: false,
+      // Flag por user spec (D7.8 Bloque 7): jefe=true verifica flujo de cambio;
+      // admin/conductor=false para tests rápidos de Bloque 6.
+      passwordChangeRequired: spec.passwordChangeRequired === true,
       fechaCreacion: FieldValue.serverTimestamp(),
       creadoPor: "seed-test-user",
       creadoEn: FieldValue.serverTimestamp(),
@@ -186,8 +201,7 @@ for (const spec of USERS) {
     if (spec.conductorId) usuarioDoc.conductorId = spec.conductorId;
     await db.collection("usuarios").doc(userRecord.uid).set(usuarioDoc);
   }
-  // sin-claims: NO /usuarios doc (simula alta incompleta, escenario
-  // ClaimsIncompletosView del LoginPage).
+  // sin-claims: NO /usuarios doc (simula alta incompleta).
   results.push({ ...spec, uid: userRecord.uid });
 }
 
@@ -232,11 +246,19 @@ console.log("  Seed OK. Users creados:");
 console.log("================================================================");
 for (const r of results) {
   const rolLabel = r.rol || "(sin claims)";
-  console.log(`  ${r.email.padEnd(28)} ${rolLabel.padEnd(14)} uid=${r.uid}`);
+  const flagLabel =
+    r.rol === null ? "n/a" : r.passwordChangeRequired === true ? "true" : "false";
+  console.log(
+    `  ${r.email.padEnd(28)} ${rolLabel.padEnd(14)} flag=${flagLabel.padEnd(5)} uid=${r.uid}`,
+  );
 }
 console.log("");
 console.log(`Password de todos: ${SEED_PASSWORD}`);
 console.log("Login desde apps/web con VITE_USE_EMULATORS=true.");
+console.log("");
+console.log("Bloque 7: usa `jefe@albius.local` para verificar el flujo");
+console.log("forzado de cambio de password (flag=true al alta).");
+console.log("Relanza este script para resetear flag tras completar el flujo.");
 console.log("");
 
 process.exit(0);

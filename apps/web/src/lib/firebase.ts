@@ -5,6 +5,11 @@ import {
   getFirestore,
   type Firestore,
 } from 'firebase/firestore';
+import {
+  connectFunctionsEmulator,
+  getFunctions,
+  type Functions,
+} from 'firebase/functions';
 
 type FirebaseEnvVar =
   | 'VITE_FIREBASE_API_KEY'
@@ -38,6 +43,7 @@ const firebaseConfig = {
 export const firebaseApp: FirebaseApp = initializeApp(firebaseConfig);
 export const auth: Auth = getAuth(firebaseApp);
 export const db: Firestore = getFirestore(firebaseApp);
+export const functions: Functions = getFunctions(firebaseApp, 'us-central1');
 
 // Conexión a emulators locales si VITE_USE_EMULATORS=true (solo desarrollo).
 // En producción (Vercel) la variable está vacía o "false" y se conecta a
@@ -45,5 +51,8 @@ export const db: Firestore = getFirestore(firebaseApp);
 if (import.meta.env.VITE_USE_EMULATORS === 'true') {
   connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
   connectFirestoreEmulator(db, '127.0.0.1', 8080);
-  console.info('[albius] Conectado a Firebase Emulators (Auth + Firestore)');
+  connectFunctionsEmulator(functions, '127.0.0.1', 5001);
+  console.info(
+    '[albius] Conectado a Firebase Emulators (Auth + Firestore + Functions)',
+  );
 }

@@ -103,6 +103,13 @@ service cloud.firestore {
     //    tokensFCM, ultimoLogin).
     //  - delete: solo super_admin. En la práctica se prefiere soft-delete
     //    mediante estado='suspendido'.
+    //
+    //  Bloque 7 (forzado de cambio de password) depende de la regla
+    //  allow read sobre /usuarios/{uid} con ownerOfDoc(uid) que sigue
+    //  más abajo. AuthContext hidrata el flag passwordChangeRequired
+    //  leyendo el doc directamente desde el frontend. Si esta regla
+    //  se restringe (p.ej. solo super_admin reads), el flujo de login
+    //  se rompe: ProtectedRoute no puede gatear el flag.
 
     match /usuarios/{uid} {
       allow read: if isSuperAdmin()
