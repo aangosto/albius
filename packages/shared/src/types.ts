@@ -176,6 +176,12 @@ export interface Tenant {
     [key: string]: unknown;
   };
   logoUrl?: string;
+  cifValidacionForzada?: boolean; // true si el operador aceptó un CIF fuera del formato español estándar (escape hatch, ver D4.4). Trazabilidad de auditoría.
+  // --- Auditoría (server-side) ---
+  creadoPor?: string; // UID del invocador del callable crearTenant (D3.7 / D4.1). Opcional retro-compat con docs legados.
+  creadoEn?: Timestamp; // FieldValue.serverTimestamp() al crear el documento (D3.7).
+  actualizadoPor?: string; // UID del invocador de la última invocación de actualizarTenant (D4.1). Ausente si nunca se actualizó.
+  actualizadoEn?: Timestamp; // FieldValue.serverTimestamp() de la última actualización (D4.1).
 }
 
 // ============================================================================
@@ -192,6 +198,11 @@ export interface Centro {
   coordenadas?: GeoPoint;
   estado: EstadoCentro;
   fechaCreacion: Timestamp;
+  // --- Auditoría (server-side) ---
+  creadoPor?: string;
+  creadoEn?: Timestamp;
+  actualizadoPor?: string;
+  actualizadoEn?: Timestamp;
 }
 
 // ============================================================================

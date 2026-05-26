@@ -77,7 +77,16 @@ service cloud.firestore {
 
     match /tenants/{tenantId} {
       allow read: if isSuperAdmin() || sameTenant(tenantId);
-      allow create, update, delete: if isSuperAdmin();
+      allow create: if isSuperAdmin();
+      allow update: if isSuperAdmin()
+                    && !fieldsChanged([
+                      'id',
+                      'cif',
+                      'fechaAlta',
+                      'creadoPor',
+                      'creadoEn'
+                    ]);
+      allow delete: if isSuperAdmin();
     }
 
     // ========================================================================
@@ -87,7 +96,16 @@ service cloud.firestore {
     match /centros/{centroId} {
       allow read: if isSuperAdmin()
                   || (isAuth() && sameTenant(resource.data.tenantId));
-      allow create, update, delete: if isSuperAdmin();
+      allow create: if isSuperAdmin();
+      allow update: if isSuperAdmin()
+                    && !fieldsChanged([
+                      'id',
+                      'tenantId',
+                      'fechaCreacion',
+                      'creadoPor',
+                      'creadoEn'
+                    ]);
+      allow delete: if isSuperAdmin();
     }
 
     // ========================================================================
