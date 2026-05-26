@@ -33,3 +33,5 @@ export const ping = onCall((request) => {
 export { crearJefeTrafico } from "./callables/crearJefeTrafico";
 export { crearConductor } from "./callables/crearConductor";
 export { marcarPasswordCambiada } from "./callables/marcarPasswordCambiada";
+export { crearTenant } from "./callables/crearTenant";
+export { actualizarTenant } from "./callables/actualizarTenant";

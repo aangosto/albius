@@ -1,5 +1,9 @@
 import { HttpsError } from "firebase-functions/v2/https";
-import type { CategoriaConductor } from "@albius/shared";
+import type {
+  CategoriaConductor,
+  EstadoTenant,
+  PlanTenant,
+} from "@albius/shared";
 
 /**
  * Validación de payloads de callables (D4: type guards a mano, sin Zod).
@@ -51,6 +55,51 @@ export interface CrearConductorPayload {
   tiposTurnoExcluidos?: string[];
   maxHorasSemanales?: number;
   observaciones?: string;
+}
+
+/**
+ * Payload de crearTenant (D4.2: defaults backend, NO en frontend).
+ * Por D4.5 (objetos compuestos en CREATE), `configuracion` admite parcial:
+ * los huecos los rellena el callable con DEFAULTS_CONFIGURACION.
+ *
+ * `forzarCIF` es el escape hatch documentado en D4.4: si true, un CIF que
+ * no pasa `validateCIF` se acepta y se persiste `cifValidacionForzada=true`
+ * en el doc Tenant para auditoría.
+ */
+export interface CrearTenantPayload {
+  nombre: string;
+  nombreComercial?: string;
+  cif: string;
+  comunidadAutonoma: string;
+  provincia: string;
+  plan?: PlanTenant;
+  configuracion?: { zonaHoraria?: string; idioma?: string };
+  forzarCIF?: boolean;
+}
+
+/**
+ * Payload de actualizarTenant. `tenantId` siempre obligatorio; el resto
+ * opcional, pero el validator exige que al menos uno esté presente
+ * (helper `assertAtLeastOneField`).
+ *
+ * Por D4.5 (objetos compuestos en UPDATE), `configuracion` se REEMPLAZA
+ * completo: si se envía, ambos sub-campos (`zonaHoraria`, `idioma`) son
+ * required. El frontend debe hidratar el objeto entero antes de editar.
+ *
+ * Por D4.4 + canónica del Bloque 8, `cif` y `cifValidacionForzada` NO son
+ * editables: el validator los rechaza con `invalid-argument`. Para typos
+ * en CIF, ver TODO[edit-cif-procedimiento].
+ */
+export interface ActualizarTenantPayload {
+  tenantId: string;
+  nombre?: string;
+  nombreComercial?: string;
+  comunidadAutonoma?: string;
+  provincia?: string;
+  plan?: PlanTenant;
+  estado?: EstadoTenant;
+  configuracion?: { zonaHoraria: string; idioma: string };
+  logoUrl?: string;
 }
 
 // ============================================================================
@@ -215,11 +264,105 @@ export function assertISODate(value: unknown, fieldName: string): Date {
   return date;
 }
 
+/**
+ * Booleano opcional. Si el valor es `undefined`/`null`, devuelve `undefined`.
+ * Si está presente, exige tipo booleano estricto (delega en assertBoolean).
+ */
+export function assertOptionalBoolean(
+  value: unknown,
+  fieldName: string,
+): boolean | undefined {
+  if (value === undefined || value === null) return undefined;
+  return assertBoolean(value, fieldName);
+}
+
+/**
+ * Enum opcional. Símil a assertEnum pero acepta omitido.
+ */
+export function assertOptionalEnum<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+  fieldName: string,
+): T | undefined {
+  if (value === undefined || value === null) return undefined;
+  return assertEnum(value, allowed, fieldName);
+}
+
+/**
+ * Configuración del Tenant en modo CREATE (D4.5): admite parcial.
+ * Cada sub-campo es opcional; los huecos se rellenan luego en el callable
+ * con DEFAULTS_CONFIGURACION.
+ */
+export function assertOptionalConfiguracionParcial(
+  value: unknown,
+  fieldName: string,
+): { zonaHoraria?: string; idioma?: string } | undefined {
+  if (value === undefined || value === null) return undefined;
+  const obj = assertPayloadObject(value, fieldName);
+  const result: { zonaHoraria?: string; idioma?: string } = {};
+  if (obj["zonaHoraria"] !== undefined) {
+    result.zonaHoraria = assertNonEmptyString(
+      obj["zonaHoraria"],
+      `${fieldName}.zonaHoraria`,
+    );
+  }
+  if (obj["idioma"] !== undefined) {
+    result.idioma = assertNonEmptyString(obj["idioma"], `${fieldName}.idioma`);
+  }
+  return result;
+}
+
+/**
+ * Configuración del Tenant en modo UPDATE (D4.5): si se envía, debe venir
+ * COMPLETA (ambos sub-campos requeridos). Replace literal en el callable.
+ */
+export function assertOptionalConfiguracionCompleta(
+  value: unknown,
+  fieldName: string,
+): { zonaHoraria: string; idioma: string } | undefined {
+  if (value === undefined || value === null) return undefined;
+  const obj = assertPayloadObject(value, fieldName);
+  return {
+    zonaHoraria: assertNonEmptyString(
+      obj["zonaHoraria"],
+      `${fieldName}.zonaHoraria`,
+    ),
+    idioma: assertNonEmptyString(obj["idioma"], `${fieldName}.idioma`),
+  };
+}
+
+/**
+ * En callables `actualizar*`: garantiza que el payload tiene al menos un
+ * campo de la lista presente (no `undefined`). Distingue "no envías nada"
+ * de "envías un campo inválido". Mirar el payload RAW antes de validar
+ * cada campo individualmente: si todos los campos opcionales están
+ * ausentes, lanza `invalid-argument` antes de cualquier otra validación.
+ */
+export function assertAtLeastOneField(
+  payload: Record<string, unknown>,
+  fields: readonly string[],
+  contextLabel: string,
+): void {
+  const presentes = fields.filter((f) => payload[f] !== undefined);
+  if (presentes.length === 0) {
+    throw new HttpsError(
+      "invalid-argument",
+      `Debes incluir al menos un campo a actualizar en ${contextLabel}: ${fields.join(", ")}.`,
+    );
+  }
+}
+
 // ============================================================================
 //  VALIDATORS DE ALTO NIVEL
 // ============================================================================
 
 const CATEGORIAS_CONDUCTOR_PERMITIDAS = ["conductor"] as const;
+const PLANES_TENANT_PERMITIDOS = ["basico", "pro", "enterprise"] as const;
+const ESTADOS_TENANT_PERMITIDOS = [
+  "activo",
+  "suspendido",
+  "cancelado",
+] as const;
 
 export function validateCrearJefeTraficoPayload(
   data: unknown,
@@ -280,4 +423,120 @@ export function validateCrearConductorPayload(
     ),
     observaciones: assertOptionalNonEmptyString(payload["observaciones"], "observaciones"),
   };
+}
+
+export function validateCrearTenantPayload(
+  data: unknown,
+): CrearTenantPayload {
+  const payload = assertPayloadObject(data, "crearTenant");
+  const result: CrearTenantPayload = {
+    nombre: assertNonEmptyString(payload["nombre"], "nombre"),
+    cif: assertNonEmptyString(payload["cif"], "cif"),
+    comunidadAutonoma: assertNonEmptyString(
+      payload["comunidadAutonoma"],
+      "comunidadAutonoma",
+    ),
+    provincia: assertNonEmptyString(payload["provincia"], "provincia"),
+  };
+  const nombreComercial = assertOptionalNonEmptyString(
+    payload["nombreComercial"],
+    "nombreComercial",
+  );
+  if (nombreComercial !== undefined) result.nombreComercial = nombreComercial;
+  const plan = assertOptionalEnum(
+    payload["plan"],
+    PLANES_TENANT_PERMITIDOS,
+    "plan",
+  );
+  if (plan !== undefined) result.plan = plan;
+  const configuracion = assertOptionalConfiguracionParcial(
+    payload["configuracion"],
+    "configuracion",
+  );
+  if (configuracion !== undefined) result.configuracion = configuracion;
+  const forzarCIF = assertOptionalBoolean(payload["forzarCIF"], "forzarCIF");
+  if (forzarCIF !== undefined) result.forzarCIF = forzarCIF;
+  return result;
+}
+
+export function validateActualizarTenantPayload(
+  data: unknown,
+): ActualizarTenantPayload {
+  const payload = assertPayloadObject(data, "actualizarTenant");
+
+  // Veto explícito de campos no editables (D4.4 + canónica B8):
+  // mensaje específico, antes de cualquier otra validación.
+  if ("cif" in payload) {
+    throw new HttpsError(
+      "invalid-argument",
+      "El CIF no es editable. Para corregir typos, ver procedimiento manual en TODO[edit-cif-procedimiento].",
+    );
+  }
+  if ("cifValidacionForzada" in payload) {
+    throw new HttpsError(
+      "invalid-argument",
+      "cifValidacionForzada se establece automáticamente durante crearTenant y no es editable directamente.",
+    );
+  }
+
+  // tenantId siempre obligatorio.
+  const tenantId = assertNonEmptyString(payload["tenantId"], "tenantId");
+
+  // Al menos un campo a actualizar (excluyendo tenantId).
+  const CAMPOS_OPCIONALES_ACTUALIZAR = [
+    "nombre",
+    "nombreComercial",
+    "comunidadAutonoma",
+    "provincia",
+    "plan",
+    "estado",
+    "configuracion",
+    "logoUrl",
+  ] as const;
+  assertAtLeastOneField(
+    payload,
+    CAMPOS_OPCIONALES_ACTUALIZAR,
+    "actualizarTenant",
+  );
+
+  // Validación campo a campo.
+  const result: ActualizarTenantPayload = { tenantId };
+  const nombre = assertOptionalNonEmptyString(payload["nombre"], "nombre");
+  if (nombre !== undefined) result.nombre = nombre;
+  const nombreComercial = assertOptionalNonEmptyString(
+    payload["nombreComercial"],
+    "nombreComercial",
+  );
+  if (nombreComercial !== undefined) result.nombreComercial = nombreComercial;
+  const comunidadAutonoma = assertOptionalNonEmptyString(
+    payload["comunidadAutonoma"],
+    "comunidadAutonoma",
+  );
+  if (comunidadAutonoma !== undefined)
+    result.comunidadAutonoma = comunidadAutonoma;
+  const provincia = assertOptionalNonEmptyString(
+    payload["provincia"],
+    "provincia",
+  );
+  if (provincia !== undefined) result.provincia = provincia;
+  const plan = assertOptionalEnum(
+    payload["plan"],
+    PLANES_TENANT_PERMITIDOS,
+    "plan",
+  );
+  if (plan !== undefined) result.plan = plan;
+  const estado = assertOptionalEnum(
+    payload["estado"],
+    ESTADOS_TENANT_PERMITIDOS,
+    "estado",
+  );
+  if (estado !== undefined) result.estado = estado;
+  const configuracion = assertOptionalConfiguracionCompleta(
+    payload["configuracion"],
+    "configuracion",
+  );
+  if (configuracion !== undefined) result.configuracion = configuracion;
+  const logoUrl = assertOptionalNonEmptyString(payload["logoUrl"], "logoUrl");
+  if (logoUrl !== undefined) result.logoUrl = logoUrl;
+  return result;
 }

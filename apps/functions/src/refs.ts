@@ -85,3 +85,35 @@ export async function assertConductorIdDisponible(
     );
   }
 }
+
+/**
+ * Verifica que el CIF no está usado por ningún tenant existente. Invariante
+ * de negocio: no puede haber dos tenants con el mismo CIF (normalizado).
+ *
+ * Query single-field (`where('cif','==',X)`); Firestore indexa
+ * automáticamente este caso, no requiere índice compuesto.
+ *
+ * `excludeTenantId` (opcional): el callable `actualizarTenant` no lo usa
+ * hoy (el `cif` es inmutable post-create según D4.4), pero el parámetro
+ * queda preparado por simetría con el patrón del modelo y por si surge
+ * `TODO[edit-cif-procedimiento]` en el futuro: permitiría reescribir el
+ * CIF de un tenant excluyendo el propio doc del check de unicidad.
+ */
+export async function assertCIFUnico(
+  db: Firestore,
+  cifNormalizado: string,
+  excludeTenantId?: string,
+): Promise<void> {
+  const snap = await db
+    .collection(COLLECTIONS.TENANTS)
+    .where("cif", "==", cifNormalizado)
+    .get();
+  for (const tenantDoc of snap.docs) {
+    if (excludeTenantId === undefined || tenantDoc.id !== excludeTenantId) {
+      throw new HttpsError(
+        "already-exists",
+        `Ya existe un tenant con CIF '${cifNormalizado}'.`,
+      );
+    }
+  }
+}
