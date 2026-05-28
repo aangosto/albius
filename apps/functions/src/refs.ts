@@ -87,6 +87,96 @@ export async function assertConductorIdDisponible(
 }
 
 /**
+ * Verifica que el tenant existe Y está en estado `'activo'`. Lanza:
+ *   - `invalid-argument` si el tenant no existe (D5.2: ID inválido, posible
+ *     bug del frontend o referencia corrupta).
+ *   - `failed-precondition` si existe pero su estado no es `'activo'`
+ *     (D5.2: ID legítimo pero estado del padre bloquea la operación).
+ *
+ * Patrón D5.1 (validación jerárquica): toda entidad hija comprueba que su
+ * entidad padre existe y está operativa antes de crearse. Aplica a Centro
+ * (padre = Tenant) y a futuras Línea/Conductor (padre = Centro), etc.
+ *
+ * Mensaje de `failed-precondition` indica explícitamente que no se crean
+ * centros en tenants suspendidos o cancelados.
+ */
+export async function assertTenantActivo(
+  db: Firestore,
+  tenantId: string,
+): Promise<void> {
+  const snap = await db.collection(COLLECTIONS.TENANTS).doc(tenantId).get();
+  if (!snap.exists) {
+    throw new HttpsError(
+      "invalid-argument",
+      `El tenant '${tenantId}' no existe.`,
+    );
+  }
+  const data = snap.data();
+  const estado = data?.["estado"];
+  if (estado !== "activo") {
+    throw new HttpsError(
+      "failed-precondition",
+      `El tenant '${tenantId}' no está activo (estado=${typeof estado === "string" ? estado : "desconocido"}). ` +
+        `No pueden crearse centros en tenants suspendidos o cancelados.`,
+    );
+  }
+}
+
+/**
+ * Estados de Conductor que IMPIDEN inactivar el centro al que están
+ * asignados (D4.6 aplicado a la cascada Centro → Conductores). Lista
+ * positiva: el conductor en `baja_definitiva` es estado terminal y NO
+ * bloquea (queda fuera del sistema operativo).
+ *
+ * Si en el futuro se añade un nuevo estado al union `EstadoConductor`
+ * (`packages/shared/src/types.ts`), revisar conscientemente si debe entrar
+ * en esta lista. La lista positiva es self-documenting: cada estado
+ * presente bloquea explícitamente.
+ *
+ * `as const` para que TS infiera el tipo literal y el operador `in` de la
+ * query Firestore reciba un array tipado correctamente.
+ */
+export const ESTADOS_CONDUCTOR_BLOQUEANTES = [
+  "activo",
+  "baja_temporal",
+  "vacaciones",
+] as const;
+
+/**
+ * Verifica que el centro indicado NO tiene conductores asignados en estados
+ * bloqueantes (`ESTADOS_CONDUCTOR_BLOQUEANTES`). Lanza `failed-precondition`
+ * con conteo en el mensaje si los hay.
+ *
+ * Query: `where(centroId == X) AND where(estado in BLOQUEANTES)`. Requiere
+ * índice compuesto `(centroId, estado)` en `firestore.indexes.json` (B11).
+ *
+ * NO se usa `.limit(1)`: queremos `snap.size` en el mensaje para informar al
+ * operador de cuántos conductores debe reasignar/dar de baja primero. El
+ * coste extra (leer hasta N docs al fallar) es aceptable: N ≤ ~300 (target
+ * de conductores por centro).
+ *
+ * D4.6 aplicado a la cascada Centro → Conductores (paralelo a la cascada
+ * Tenant → Centros que vive en `actualizarTenant`).
+ */
+export async function assertNoConductoresActivosEnCentro(
+  db: Firestore,
+  centroId: string,
+): Promise<void> {
+  const snap = await db
+    .collection(COLLECTIONS.CONDUCTORES)
+    .where("centroId", "==", centroId)
+    .where("estado", "in", ESTADOS_CONDUCTOR_BLOQUEANTES)
+    .get();
+  if (!snap.empty) {
+    throw new HttpsError(
+      "failed-precondition",
+      `No puede inactivarse un centro con conductores asignados (activos, en baja temporal o vacaciones). ` +
+        `Reasigna o da de baja definitiva a los ${snap.size} conductores primero.`,
+    );
+  }
+}
+
+/**
  * Verifica que el CIF no está usado por ningún tenant existente. Invariante
  * de negocio: no puede haber dos tenants con el mismo CIF (normalizado).
  *

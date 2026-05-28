@@ -1,6 +1,7 @@
 import { HttpsError } from "firebase-functions/v2/https";
 import type {
   CategoriaConductor,
+  EstadoCentro,
   EstadoTenant,
   PlanTenant,
 } from "@albius/shared";
@@ -100,6 +101,55 @@ export interface ActualizarTenantPayload {
   estado?: EstadoTenant;
   configuracion?: { zonaHoraria: string; idioma: string };
   logoUrl?: string;
+}
+
+/**
+ * Coordenadas geográficas planas (latitud/longitud en grados decimales). Es
+ * la forma "wire" del GeoPoint de Firestore: el frontend manda un objeto
+ * plano JSON y el callable lo convierte a `new GeoPoint(lat, lon)` en la
+ * escritura. Validado por `assertOptionalCoordenadas` con rangos estándar.
+ */
+export interface CoordenadasPayload {
+  latitude: number;
+  longitude: number;
+}
+
+/**
+ * Payload de crearCentro (D4.2: defaults backend, solo estado='activo'
+ * hard-coded — Centro no tiene `configuracion` ni `plan` que defaultar).
+ * `direccion` y `coordenadas` son opcionales por el modelo.
+ *
+ * Sin validador de dominio (no hay CIF ni equivalente para Centro).
+ */
+export interface CrearCentroPayload {
+  tenantId: string;
+  nombre: string;
+  ciudad: string;
+  provincia: string;
+  direccion?: string;
+  coordenadas?: CoordenadasPayload;
+}
+
+/**
+ * Payload de actualizarCentro. `centroId` siempre obligatorio; el resto
+ * opcional, pero el validator exige al menos uno presente vía
+ * `assertAtLeastOneField`.
+ *
+ * Inmutables vetados explícitamente (defensa en profundidad sobre las
+ * reglas Firestore, que también los bloquean): `tenantId`, `id`,
+ * `fechaCreacion`, `creadoPor`, `creadoEn`. Mensajes específicos.
+ *
+ * `coordenadas` en UPDATE sigue patrón "omit = no tocar" (MVP). Borrado
+ * explícito de coordenadas no soportado — ver `TODO[delete-on-empty-fields]`.
+ */
+export interface ActualizarCentroPayload {
+  centroId: string;
+  nombre?: string;
+  direccion?: string;
+  ciudad?: string;
+  provincia?: string;
+  coordenadas?: CoordenadasPayload;
+  estado?: EstadoCentro;
 }
 
 // ============================================================================
@@ -332,6 +382,50 @@ export function assertOptionalConfiguracionCompleta(
 }
 
 /**
+ * Coordenadas geográficas. Si el valor llega `undefined`/`null`, devuelve
+ * `undefined`. Si está presente, valida rangos estándar:
+ *   - latitude  ∈ [-90, 90]
+ *   - longitude ∈ [-180, 180]
+ *   - ambos `Number.isFinite` (rechaza NaN, Infinity).
+ *
+ * El callable convertirá el objeto plano resultante a `new GeoPoint(lat, lon)`
+ * en la escritura. NO se hace aquí para mantener validation.ts libre de
+ * dependencias de firebase-admin.
+ */
+export function assertOptionalCoordenadas(
+  value: unknown,
+  fieldName: string,
+): { latitude: number; longitude: number } | undefined {
+  if (value === undefined || value === null) return undefined;
+  const obj = assertPayloadObject(value, fieldName);
+  const lat = obj["latitude"];
+  const lon = obj["longitude"];
+  if (
+    typeof lat !== "number" ||
+    !Number.isFinite(lat) ||
+    lat < -90 ||
+    lat > 90
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      `El campo '${fieldName}.latitude' debe ser un número entre -90 y 90.`,
+    );
+  }
+  if (
+    typeof lon !== "number" ||
+    !Number.isFinite(lon) ||
+    lon < -180 ||
+    lon > 180
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      `El campo '${fieldName}.longitude' debe ser un número entre -180 y 180.`,
+    );
+  }
+  return { latitude: lat, longitude: lon };
+}
+
+/**
  * En callables `actualizar*`: garantiza que el payload tiene al menos un
  * campo de la lista presente (no `undefined`). Distingue "no envías nada"
  * de "envías un campo inválido". Mirar el payload RAW antes de validar
@@ -363,6 +457,7 @@ const ESTADOS_TENANT_PERMITIDOS = [
   "suspendido",
   "cancelado",
 ] as const;
+const ESTADOS_CENTRO_PERMITIDOS = ["activo", "inactivo"] as const;
 
 export function validateCrearJefeTraficoPayload(
   data: unknown,
@@ -538,5 +633,114 @@ export function validateActualizarTenantPayload(
   if (configuracion !== undefined) result.configuracion = configuracion;
   const logoUrl = assertOptionalNonEmptyString(payload["logoUrl"], "logoUrl");
   if (logoUrl !== undefined) result.logoUrl = logoUrl;
+  return result;
+}
+
+export function validateCrearCentroPayload(
+  data: unknown,
+): CrearCentroPayload {
+  const payload = assertPayloadObject(data, "crearCentro");
+  const result: CrearCentroPayload = {
+    tenantId: assertNonEmptyString(payload["tenantId"], "tenantId"),
+    nombre: assertNonEmptyString(payload["nombre"], "nombre"),
+    ciudad: assertNonEmptyString(payload["ciudad"], "ciudad"),
+    provincia: assertNonEmptyString(payload["provincia"], "provincia"),
+  };
+  const direccion = assertOptionalNonEmptyString(
+    payload["direccion"],
+    "direccion",
+  );
+  if (direccion !== undefined) result.direccion = direccion;
+  const coordenadas = assertOptionalCoordenadas(
+    payload["coordenadas"],
+    "coordenadas",
+  );
+  if (coordenadas !== undefined) result.coordenadas = coordenadas;
+  return result;
+}
+
+export function validateActualizarCentroPayload(
+  data: unknown,
+): ActualizarCentroPayload {
+  const payload = assertPayloadObject(data, "actualizarCentro");
+
+  // Veto explícito de campos no editables (defensa en profundidad sobre
+  // las reglas Firestore, que también los bloquean). Mensajes específicos.
+  if ("tenantId" in payload) {
+    throw new HttpsError(
+      "invalid-argument",
+      "El tenantId no es editable. Un centro pertenece permanentemente al tenant donde se creó.",
+    );
+  }
+  if ("id" in payload) {
+    throw new HttpsError(
+      "invalid-argument",
+      "El campo 'id' no es editable.",
+    );
+  }
+  if ("fechaCreacion" in payload) {
+    throw new HttpsError(
+      "invalid-argument",
+      "El campo 'fechaCreacion' no es editable.",
+    );
+  }
+  if ("creadoPor" in payload) {
+    throw new HttpsError(
+      "invalid-argument",
+      "El campo 'creadoPor' no es editable.",
+    );
+  }
+  if ("creadoEn" in payload) {
+    throw new HttpsError(
+      "invalid-argument",
+      "El campo 'creadoEn' no es editable.",
+    );
+  }
+
+  // centroId siempre obligatorio.
+  const centroId = assertNonEmptyString(payload["centroId"], "centroId");
+
+  // Al menos un campo a actualizar (excluyendo centroId).
+  const CAMPOS_OPCIONALES_ACTUALIZAR = [
+    "nombre",
+    "direccion",
+    "ciudad",
+    "provincia",
+    "coordenadas",
+    "estado",
+  ] as const;
+  assertAtLeastOneField(
+    payload,
+    CAMPOS_OPCIONALES_ACTUALIZAR,
+    "actualizarCentro",
+  );
+
+  // Validación campo a campo.
+  const result: ActualizarCentroPayload = { centroId };
+  const nombre = assertOptionalNonEmptyString(payload["nombre"], "nombre");
+  if (nombre !== undefined) result.nombre = nombre;
+  const direccion = assertOptionalNonEmptyString(
+    payload["direccion"],
+    "direccion",
+  );
+  if (direccion !== undefined) result.direccion = direccion;
+  const ciudad = assertOptionalNonEmptyString(payload["ciudad"], "ciudad");
+  if (ciudad !== undefined) result.ciudad = ciudad;
+  const provincia = assertOptionalNonEmptyString(
+    payload["provincia"],
+    "provincia",
+  );
+  if (provincia !== undefined) result.provincia = provincia;
+  const coordenadas = assertOptionalCoordenadas(
+    payload["coordenadas"],
+    "coordenadas",
+  );
+  if (coordenadas !== undefined) result.coordenadas = coordenadas;
+  const estado = assertOptionalEnum(
+    payload["estado"],
+    ESTADOS_CENTRO_PERMITIDOS,
+    "estado",
+  );
+  if (estado !== undefined) result.estado = estado;
   return result;
 }

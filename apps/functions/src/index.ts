@@ -35,3 +35,5 @@ export { crearConductor } from "./callables/crearConductor";
 export { marcarPasswordCambiada } from "./callables/marcarPasswordCambiada";
 export { crearTenant } from "./callables/crearTenant";
 export { actualizarTenant } from "./callables/actualizarTenant";
+export { crearCentro } from "./callables/crearCentro";
+export { actualizarCentro } from "./callables/actualizarCentro";

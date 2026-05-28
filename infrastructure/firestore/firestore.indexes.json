@@ -7,6 +7,14 @@
         { "fieldPath": "tenantId", "order": "ASCENDING" },
         { "fieldPath": "estado", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "conductores",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "centroId", "order": "ASCENDING" },
+        { "fieldPath": "estado", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
