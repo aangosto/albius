@@ -1,5 +1,6 @@
 import type { Firestore } from "firebase-admin/firestore";
 import { HttpsError } from "firebase-functions/v2/https";
+import type { Usuario } from "@albius/shared";
 import { COLLECTIONS } from "./collections";
 
 /**
@@ -206,4 +207,33 @@ export async function assertCIFUnico(
       );
     }
   }
+}
+
+/**
+ * Verifica que el usuario existe en /usuarios. Lanza 'invalid-argument' si no
+ * (semántica D5.2: ID inexistente es error de entrada, no estado bloqueante).
+ *
+ * DIVERGENCIA CONSCIENTE respecto a los assert*Exists hermanos
+ * (`assertTenantExists`, `assertCentroExistsInTenant`), que devuelven `void`:
+ * este helper DEVUELVE los datos del documento (`Usuario`). Razón (B13): el
+ * callable `actualizarUsuario` necesita `doc.estado` para decidir la
+ * transición de estado (no-op Opción A) y, de devolver `void`, tendría que
+ * releer el documento. Devolver los datos evita esa doble lectura.
+ *
+ * Cast permisivo a `Usuario`: confiamos en que el doc fue creado por
+ * `crearJefeTrafico`/`crearConductor`/bootstrap (que escriben los campos
+ * required). Mismo criterio que el cast de `actualizarTenant`/`actualizarCentro`.
+ */
+export async function assertUsuarioExists(
+  db: Firestore,
+  usuarioId: string,
+): Promise<Usuario> {
+  const snap = await db.collection(COLLECTIONS.USUARIOS).doc(usuarioId).get();
+  if (!snap.exists) {
+    throw new HttpsError(
+      "invalid-argument",
+      `El usuario '${usuarioId}' no existe.`,
+    );
+  }
+  return snap.data() as Usuario;
 }

@@ -227,6 +227,8 @@ export interface Usuario {
   // --- Auditoría (server-side) ---
   creadoPor?: string; // UID del usuario que ejecutó el callable que creó este documento (D7). Los callables del Bloque 3.2 lo rellenan siempre; podría faltar en datos legados o importados.
   creadoEn?: Timestamp; // FieldValue.serverTimestamp() al crear el documento (D7). Mismas garantías que arriba.
+  actualizadoPor?: string; // UID del invocador de la última invocación de actualizarUsuario (D4.1 / B13). Ausente si nunca se actualizó.
+  actualizadoEn?: Timestamp; // FieldValue.serverTimestamp() de la última actualización (D4.1 / B13).
 }
 
 // ============================================================================

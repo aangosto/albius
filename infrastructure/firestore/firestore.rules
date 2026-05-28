@@ -115,10 +115,18 @@ service cloud.firestore {
     //  - create: prohibido desde cliente. Solo Cloud Functions (Admin SDK)
     //    pueden crear documentos /usuarios porque la operación requiere
     //    setear custom claims atómicamente en el mismo paso.
-    //  - update sensible (rol, tenantId, centroId, conductorId, estado,
-    //    passwordChangeRequired): reservado a super_admin. El propio usuario
-    //    puede actualizar el resto de campos (nombreCompleto, telefono,
-    //    tokensFCM, ultimoLogin).
+    //  - update super_admin: permitido salvo campos inmutables (id, creadoPor,
+    //    creadoEn, fechaCreacion), vetados por defensa en profundidad (B13,
+    //    cuestión 7) — simétrico a /tenants y /centros. El callable
+    //    actualizarUsuario usa Admin SDK y bypassa estas reglas; el veto cubre
+    //    el path de escritura directa de cliente.
+    //  - update owner (self): puede tocar campos no sensibles (telefono,
+    //    tokensFCM, ultimoLogin) pero NO los sensibles (rol, tenantId, centroId,
+    //    conductorId, estado, passwordChangeRequired) ni los dual-homed
+    //    (email, nombreCompleto). Estos dos últimos se añadieron en B13
+    //    (cuestión 6 / D5.4): viven a la vez en el doc y en el Auth user record,
+    //    así que su edición se canaliza obligatoriamente por callable con
+    //    escritura dual (evita drift Auth↔doc). Ver TODO[perfil-self-edit-via-callable].
     //  - delete: solo super_admin. En la práctica se prefiere soft-delete
     //    mediante estado='suspendido'.
     //
@@ -127,7 +135,8 @@ service cloud.firestore {
     //  más abajo. AuthContext hidrata el flag passwordChangeRequired
     //  leyendo el doc directamente desde el frontend. Si esta regla
     //  se restringe (p.ej. solo super_admin reads), el flujo de login
-    //  se rompe: ProtectedRoute no puede gatear el flag.
+    //  se rompe: ProtectedRoute no puede gatear el flag. El endurecimiento
+    //  de B13 NO toca la regla read self-only (sigue intacta más abajo).
 
     match /usuarios/{uid} {
       allow read: if isSuperAdmin()
@@ -136,7 +145,15 @@ service cloud.firestore {
 
       allow create: if false;
 
-      allow update: if isSuperAdmin()
+      allow update: if (
+                      isSuperAdmin()
+                      && !fieldsChanged([
+                        'id',
+                        'creadoPor',
+                        'creadoEn',
+                        'fechaCreacion'
+                      ])
+                    )
                     || (
                       ownerOfDoc(uid)
                       && !fieldsChanged([
@@ -145,7 +162,9 @@ service cloud.firestore {
                         'centroId',
                         'conductorId',
                         'estado',
-                        'passwordChangeRequired'
+                        'passwordChangeRequired',
+                        'email',
+                        'nombreCompleto'
                       ])
                     );
 

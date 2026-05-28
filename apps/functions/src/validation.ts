@@ -3,6 +3,7 @@ import type {
   CategoriaConductor,
   EstadoCentro,
   EstadoTenant,
+  EstadoUsuario,
   PlanTenant,
 } from "@albius/shared";
 
@@ -150,6 +151,31 @@ export interface ActualizarCentroPayload {
   provincia?: string;
   coordenadas?: CoordenadasPayload;
   estado?: EstadoCentro;
+}
+
+/**
+ * Payload de actualizarUsuario (B13). `usuarioId` siempre obligatorio; el
+ * resto opcional, pero el validator exige al menos uno presente vía
+ * `assertAtLeastOneField`.
+ *
+ * Solo edita campos no-críticos: `nombreCompleto` y `email` son dual-homed
+ * (viven también en el Auth user record; el callable hace escritura dual,
+ * D5.4), `telefono` y `estado` son solo-Firestore.
+ *
+ * Campos vetados explícitamente (D5.5 + inmutables + passwords):
+ *   - rol / tenantId / centroId / conductorId: identidad y claims, reservados
+ *     a callables dedicados futuros (cambiarRolUsuario, moverUsuario);
+ *     conductorId es inmutable de por vida (D3.1).
+ *   - id / creadoPor / creadoEn / fechaCreacion: inmutables.
+ *   - passwordChangeRequired / passwordCambiadaEn: gestionados por el flujo
+ *     de cambio de contraseña (marcarPasswordCambiada).
+ */
+export interface ActualizarUsuarioPayload {
+  usuarioId: string;
+  nombreCompleto?: string;
+  telefono?: string;
+  email?: string;
+  estado?: EstadoUsuario;
 }
 
 // ============================================================================
@@ -458,6 +484,7 @@ const ESTADOS_TENANT_PERMITIDOS = [
   "cancelado",
 ] as const;
 const ESTADOS_CENTRO_PERMITIDOS = ["activo", "inactivo"] as const;
+const ESTADOS_USUARIO_PERMITIDOS = ["activo", "suspendido"] as const;
 
 export function validateCrearJefeTraficoPayload(
   data: unknown,
@@ -739,6 +766,106 @@ export function validateActualizarCentroPayload(
   const estado = assertOptionalEnum(
     payload["estado"],
     ESTADOS_CENTRO_PERMITIDOS,
+    "estado",
+  );
+  if (estado !== undefined) result.estado = estado;
+  return result;
+}
+
+export function validateActualizarUsuarioPayload(
+  data: unknown,
+): ActualizarUsuarioPayload {
+  const payload = assertPayloadObject(data, "actualizarUsuario");
+
+  // --- Vetos categorizados (mensaje específico, antes de validar) ---
+
+  // IDENTIDAD / CLAIMS (D5.5): reservados a callables dedicados futuros.
+  if ("rol" in payload) {
+    throw new HttpsError(
+      "invalid-argument",
+      "El rol no es editable con actualizarUsuario. Usa el callable dedicado cambiarRolUsuario (futuro).",
+    );
+  }
+  if ("tenantId" in payload || "centroId" in payload) {
+    throw new HttpsError(
+      "invalid-argument",
+      "tenantId/centroId no son editables con actualizarUsuario. Usa el callable dedicado moverUsuario (futuro).",
+    );
+  }
+  if ("conductorId" in payload) {
+    throw new HttpsError(
+      "invalid-argument",
+      "conductorId es la identidad del conductor (D3.1) y no es editable.",
+    );
+  }
+
+  // INMUTABLES (mensaje genérico por campo).
+  if ("id" in payload) {
+    throw new HttpsError("invalid-argument", "El campo 'id' no es editable.");
+  }
+  if ("creadoPor" in payload) {
+    throw new HttpsError(
+      "invalid-argument",
+      "El campo 'creadoPor' no es editable.",
+    );
+  }
+  if ("creadoEn" in payload) {
+    throw new HttpsError(
+      "invalid-argument",
+      "El campo 'creadoEn' no es editable.",
+    );
+  }
+  if ("fechaCreacion" in payload) {
+    throw new HttpsError(
+      "invalid-argument",
+      "El campo 'fechaCreacion' no es editable.",
+    );
+  }
+
+  // PASSWORDS: gestionados por el flujo de cambio de contraseña.
+  if ("passwordChangeRequired" in payload || "passwordCambiadaEn" in payload) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Se gestiona vía el flujo de cambio de contraseña (marcarPasswordCambiada), no es editable aquí.",
+    );
+  }
+
+  // usuarioId siempre obligatorio.
+  const usuarioId = assertNonEmptyString(payload["usuarioId"], "usuarioId");
+
+  // Al menos un campo a actualizar (excluyendo usuarioId).
+  const CAMPOS_OPCIONALES_ACTUALIZAR = [
+    "nombreCompleto",
+    "telefono",
+    "email",
+    "estado",
+  ] as const;
+  assertAtLeastOneField(
+    payload,
+    CAMPOS_OPCIONALES_ACTUALIZAR,
+    "actualizarUsuario",
+  );
+
+  // Validación campo a campo.
+  const result: ActualizarUsuarioPayload = { usuarioId };
+  const nombreCompleto = assertOptionalNonEmptyString(
+    payload["nombreCompleto"],
+    "nombreCompleto",
+  );
+  if (nombreCompleto !== undefined) result.nombreCompleto = nombreCompleto;
+  const telefono = assertOptionalNonEmptyString(
+    payload["telefono"],
+    "telefono",
+  );
+  if (telefono !== undefined) result.telefono = telefono;
+  // email opcional: reutiliza assertEmail (exige no-vacío + formato) solo si
+  // está presente. No existe assertOptionalEmail; se valida condicionalmente.
+  if (payload["email"] !== undefined && payload["email"] !== null) {
+    result.email = assertEmail(payload["email"], "email");
+  }
+  const estado = assertOptionalEnum(
+    payload["estado"],
+    ESTADOS_USUARIO_PERMITIDOS,
     "estado",
   );
   if (estado !== undefined) result.estado = estado;

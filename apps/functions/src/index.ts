@@ -37,3 +37,4 @@ export { crearTenant } from "./callables/crearTenant";
 export { actualizarTenant } from "./callables/actualizarTenant";
 export { crearCentro } from "./callables/crearCentro";
 export { actualizarCentro } from "./callables/actualizarCentro";
+export { actualizarUsuario } from "./callables/actualizarUsuario";
