@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -11,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import NoAutorizadoView from '@/components/shared/NoAutorizadoView';
 import CambiarEstadoTenantDialog from '@/components/tenants/CambiarEstadoTenantDialog';
 import TenantFormDialog from '@/components/tenants/TenantFormDialog';
 import TenantsTable from '@/components/tenants/TenantsTable';
@@ -202,14 +202,4 @@ function matchBusqueda(t: Tenant, q: string): boolean {
     t.provincia,
     t.comunidadAutonoma,
   ].some((s) => s.toLowerCase().includes(norm));
-}
-
-function NoAutorizadoView() {
-  return (
-    <Card className="py-12 px-6">
-      <p className="text-center text-sm text-muted-foreground">
-        No tienes permiso para acceder a esta página.
-      </p>
-    </Card>
-  );
 }

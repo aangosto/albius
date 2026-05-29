@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -11,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import NoAutorizadoView from '@/components/shared/NoAutorizadoView';
 import CambiarEstadoCentroDialog from '@/components/centros/CambiarEstadoCentroDialog';
 import CentroFormDialog from '@/components/centros/CentroFormDialog';
 import CentrosTable from '@/components/centros/CentrosTable';
@@ -40,10 +40,6 @@ import type { Centro, EstadoCentro, Tenant } from '@albius/shared';
  * Estructura: el gate D4.13 vive en el componente exportado para que los
  * hooks no se invoquen cuando el usuario no tiene permiso. El contenido
  * autorizado vive en CentrosPageAuthorized.
- *
- * NoAutorizadoView duplicado deliberadamente vs TenantsPage (5 líneas).
- * Si una tercera página administrativa surge (UsuariosPage), extraer a
- * `components/shared/NoAutorizadoView.tsx` con un único refactor.
  */
 
 export default function CentrosPage() {
@@ -278,14 +274,4 @@ function matchBusqueda(
     c.direccion ?? '',
     tenantNombre,
   ].some((s) => s.toLowerCase().includes(norm));
-}
-
-function NoAutorizadoView() {
-  return (
-    <Card className="py-12 px-6">
-      <p className="text-center text-sm text-muted-foreground">
-        No tienes permiso para acceder a esta página.
-      </p>
-    </Card>
-  );
 }
