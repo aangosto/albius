@@ -189,6 +189,50 @@ service cloud.firestore {
     }
 
     // ========================================================================
+    //  4.5  LINEAS
+    // ========================================================================
+    //
+    //  Línea OPERATIVA colgada de un centro (B16): el jefe de tráfico gestiona
+    //  las líneas de su centro, no es una entidad de gobierno. Por eso el
+    //  hermano correcto es /conductores (permite escritura de jefe scoped por
+    //  tenant), no /centros (solo super_admin). Los callables crearLinea/
+    //  actualizarLinea ya autorizan al jefe; la regla declara la misma política,
+    //  no una más restrictiva que el backend contradiría.
+    //
+    //  `read` tenant-scoped: super_admin global + usuarios del tenant de la línea.
+    //
+    //  `write` (create/update): super_admin o jefe_trafico del mismo tenant
+    //  (patrón /conductores), CON veto de inmutables (id, tenantId, centroId,
+    //  creadoPor, creadoEn) en update por defensa en profundidad D6.x — esto
+    //  último NO lo tiene /conductores, pero aquí lo queremos.
+    //
+    //  NOTA: la regla es tenant-scoped (sameTenant); el callable es
+    //  centro-scoped (anti-cross-centro: un jefe solo toca líneas de SU centro).
+    //  La verdad operativa la impone el callable (Admin SDK); la regla es la
+    //  defensa de último recurso ante escritura directa de cliente. Mismo nivel
+    //  de garantía que /conductores.
+
+    match /lineas/{id} {
+      allow read: if isSuperAdmin()
+                  || (isAuth() && sameTenant(resource.data.tenantId));
+
+      allow create: if (isSuperAdmin() || isJefeTrafico())
+                    && sameTenant(request.resource.data.tenantId);
+
+      allow update: if (isSuperAdmin() || isJefeTrafico())
+                    && sameTenant(resource.data.tenantId)
+                    && !fieldsChanged([
+                      'id',
+                      'tenantId',
+                      'centroId',
+                      'creadoPor',
+                      'creadoEn'
+                    ]);
+
+      allow delete: if isSuperAdmin();
+    }
+
+    // ========================================================================
     //  COLECCIONES NO ABIERTAS EN ESTA SESIÓN — DENY-ALL EXPLÍCITO
     // ========================================================================
     //
@@ -199,7 +243,6 @@ service cloud.firestore {
     //  NO añadir un wildcard `match /{path=**}` final: queremos que la
     //  presencia o ausencia de una entrada por colección sea explícita.
 
-    match /lineas/{id}                    { allow read, write: if false; }
     match /paradas/{id}                   { allow read, write: if false; }
     match /frecuencias/{id}               { allow read, write: if false; }
     match /frecuencias_excepcionales/{id} { allow read, write: if false; }

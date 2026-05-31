@@ -38,3 +38,5 @@ export { actualizarTenant } from "./callables/actualizarTenant";
 export { crearCentro } from "./callables/crearCentro";
 export { actualizarCentro } from "./callables/actualizarCentro";
 export { actualizarUsuario } from "./callables/actualizarUsuario";
+export { crearLinea } from "./callables/crearLinea";
+export { actualizarLinea } from "./callables/actualizarLinea";

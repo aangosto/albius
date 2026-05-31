@@ -47,6 +47,8 @@ export type CategoriaConductor = 'conductor'; // Solo en MVP. Más adelante: int
 
 export type EstadoLinea = 'activa' | 'inactiva' | 'suspendida';
 
+export type TipoLinea = 'urbana' | 'cercanias' | 'interurbana';
+
 export type EstadoParada = 'activa' | 'fuera_servicio';
 
 export type TipoDia = 'laborable' | 'sabado' | 'domingo' | 'festivo';
@@ -271,14 +273,21 @@ export interface Linea {
   id: string;
   tenantId: string;
   centroId: string;
-  codigo: string; // "L5", "N1"
+  codigo: string; // "42A", "44", "N1" — único por centro (D6.3)
   nombre: string;
-  color: string; // HEX format: "#1F77B4"
-  esNocturna: boolean;
-  paradasIda: string[]; // IDs de paradas en orden
-  paradasVuelta: string[]; // IDs de paradas en orden
-  estado: EstadoLinea;
-  fechaCreacion: Timestamp;
+  tipo: TipoLinea; // urbana | cercanias | interurbana
+  color?: string; // HEX "#1F77B4" — opcional, validado si presente
+  esNocturna: boolean; // ortogonal a tipo
+  paradasIda: string[]; // IDs de paradas en orden; vacío permitido en alta. PROVISIONAL: relación línea↔parada se redecide en B17 (ver TODO[modelo-linea-paradas])
+  paradasVuelta: string[]; // idem
+  estado: EstadoLinea; // enum-3 'activa'|'inactiva'|'suspendida' (D6.2, excepción consciente a D5.3)
+  vigenciaDesde?: Timestamp; // estacionalidad; ausente = vigente siempre
+  vigenciaHasta?: Timestamp; // validar desde<hasta si ambos presentes
+  observaciones?: string;
+  creadoPor?: string; // D3.7
+  creadoEn?: Timestamp; // D3.7 — reemplaza fechaCreacion
+  actualizadoPor?: string; // D4.1
+  actualizadoEn?: Timestamp; // D4.1
 }
 
 // ============================================================================

@@ -124,6 +124,38 @@ export async function assertTenantActivo(
 }
 
 /**
+ * Verifica que el centro existe Y está activo antes de crear una línea (u otra
+ * entidad hija) bajo él. Paralelo a `assertTenantActivo` (D5.1) con la misma
+ * semántica de códigos (D5.2): centro inexistente → 'invalid-argument' (ID
+ * inválido); centro existente pero `estado !== 'activo'` → 'failed-precondition'
+ * (el estado del padre bloquea la creación de la entidad hija).
+ *
+ * Mensaje de `failed-precondition` indica explícitamente que no se crean
+ * líneas en centros inactivos.
+ */
+export async function assertCentroActivo(
+  db: Firestore,
+  centroId: string,
+): Promise<void> {
+  const snap = await db.collection(COLLECTIONS.CENTROS).doc(centroId).get();
+  if (!snap.exists) {
+    throw new HttpsError(
+      "invalid-argument",
+      `El centro '${centroId}' no existe.`,
+    );
+  }
+  const data = snap.data();
+  const estado = data?.["estado"];
+  if (estado !== "activo") {
+    throw new HttpsError(
+      "failed-precondition",
+      `El centro '${centroId}' no está activo (estado=${typeof estado === "string" ? estado : "desconocido"}). ` +
+        `No pueden crearse líneas en centros inactivos.`,
+    );
+  }
+}
+
+/**
  * Estados de Conductor que IMPIDEN inactivar el centro al que están
  * asignados (D4.6 aplicado a la cascada Centro → Conductores). Lista
  * positiva: el conductor en `baja_definitiva` es estado terminal y NO
@@ -204,6 +236,44 @@ export async function assertCIFUnico(
       throw new HttpsError(
         "already-exists",
         `Ya existe un tenant con CIF '${cifNormalizado}'.`,
+      );
+    }
+  }
+}
+
+/**
+ * Verifica que el `codigo` de línea es único DENTRO DEL CENTRO (D6.3): dos
+ * centros distintos pueden tener cada uno una línea '42A', pero el mismo centro
+ * no puede tenerla dos veces. Paralelo a `assertCIFUnico`.
+ *
+ * Query con dos filtros de igualdad `where(centroId == X) AND where(codigo == Y)`.
+ * Se respalda con índice compuesto `(centroId, codigo)` en
+ * `firestore.indexes.json` (se añade en el PASO 3 del Bloque 16, junto al
+ * callable `crearLinea`).
+ *
+ * NO se usa `.limit(1)`: el set es pequeño (a lo sumo 1 colisión) y el patrón
+ * hermano `assertCIFUnico` tampoco lo usa.
+ *
+ * `excludeLineaId` (opcional): lo usa `actualizarLinea` para que la línea no
+ * choque consigo misma al revalidar unicidad si edita su propio `codigo`
+ * (simétrico al `excludeTenantId` de `assertCIFUnico`).
+ */
+export async function assertCodigoLineaUnico(
+  db: Firestore,
+  centroId: string,
+  codigo: string,
+  excludeLineaId?: string,
+): Promise<void> {
+  const snap = await db
+    .collection(COLLECTIONS.LINEAS)
+    .where("centroId", "==", centroId)
+    .where("codigo", "==", codigo)
+    .get();
+  for (const lineaDoc of snap.docs) {
+    if (excludeLineaId === undefined || lineaDoc.id !== excludeLineaId) {
+      throw new HttpsError(
+        "already-exists",
+        `Ya existe una línea con código '${codigo}' en este centro.`,
       );
     }
   }

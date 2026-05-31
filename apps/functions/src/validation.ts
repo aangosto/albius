@@ -2,9 +2,11 @@ import { HttpsError } from "firebase-functions/v2/https";
 import type {
   CategoriaConductor,
   EstadoCentro,
+  EstadoLinea,
   EstadoTenant,
   EstadoUsuario,
   PlanTenant,
+  TipoLinea,
 } from "@albius/shared";
 
 /**
@@ -25,6 +27,9 @@ import type {
  */
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Color HEX de 6 dígitos con almohadilla ("#1F77B4"). Usado por Linea.color.
+const COLOR_HEX_REGEX = /^#[0-9A-Fa-f]{6}$/;
 
 // ============================================================================
 //  TIPOS DE PAYLOAD
@@ -176,6 +181,68 @@ export interface ActualizarUsuarioPayload {
   telefono?: string;
   email?: string;
   estado?: EstadoUsuario;
+}
+
+/**
+ * Payload de crearLinea (B16, primer modelo operativo).
+ *
+ * `estado` es REQUERIDO (a diferencia de Centro, que hard-codea 'activo'):
+ * Línea tiene enum-3 y puede crearse directamente como 'suspendida' (línea
+ * estacional fuera de temporada). No se defaultea en backend (D4.2 no aplica
+ * a este campo).
+ *
+ * `paradasIda`/`paradasVuelta` admiten vacío y se defaultean a `[]` si se
+ * omiten (D4.2, como `crearConductor` con sus arrays). PROVISIONAL: la
+ * relación línea↔parada se redecide en B17 (`TODO[modelo-linea-paradas]`).
+ *
+ * `color`, `vigenciaDesde`/`vigenciaHasta`, `observaciones` son opcionales por
+ * el modelo. Fechas tipadas `Date` (parseadas de ISO string por el validator,
+ * convertidas a Timestamp por el callable), igual que `CrearConductorPayload`.
+ */
+export interface CrearLineaPayload {
+  tenantId: string;
+  centroId: string;
+  codigo: string;
+  nombre: string;
+  tipo: TipoLinea;
+  esNocturna: boolean;
+  estado: EstadoLinea;
+  color?: string;
+  paradasIda?: string[];
+  paradasVuelta?: string[];
+  vigenciaDesde?: Date;
+  vigenciaHasta?: Date;
+  observaciones?: string;
+}
+
+/**
+ * Payload de actualizarLinea. `lineaId` siempre obligatorio; el resto opcional,
+ * pero el validator exige al menos uno presente vía `assertAtLeastOneField`.
+ *
+ * Inmutables vetados explícitamente (defensa en profundidad sobre las reglas
+ * Firestore): `id`, `tenantId`, `centroId`, `creadoPor`, `creadoEn`. El
+ * `centroId` es inmutable: una línea pertenece permanentemente al centro donde
+ * se creó (paralelo a `tenantId` en Centro).
+ *
+ * `codigo` SÍ es editable a nivel formato aquí; el callable revalida unicidad
+ * por centro (`assertCodigoLineaUnico` con `excludeLineaId`).
+ *
+ * `paradasIda`/`paradasVuelta` en UPDATE siguen patrón "omit = no tocar"; si se
+ * envían, reemplazan el array completo.
+ */
+export interface ActualizarLineaPayload {
+  lineaId: string;
+  codigo?: string;
+  nombre?: string;
+  tipo?: TipoLinea;
+  esNocturna?: boolean;
+  estado?: EstadoLinea;
+  color?: string;
+  paradasIda?: string[];
+  paradasVuelta?: string[];
+  vigenciaDesde?: Date;
+  vigenciaHasta?: Date;
+  observaciones?: string;
 }
 
 // ============================================================================
@@ -472,6 +539,39 @@ export function assertAtLeastOneField(
   }
 }
 
+/**
+ * Color HEX opcional ("#1F77B4"). Si el valor llega `undefined`/`null`, devuelve
+ * `undefined`. Si está presente, exige string que matchee `COLOR_HEX_REGEX`
+ * (almohadilla + 6 dígitos hex). Introducido en B16 para `Linea.color`.
+ */
+export function assertOptionalColorHex(
+  value: unknown,
+  fieldName: string,
+): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string" || !COLOR_HEX_REGEX.test(value)) {
+    throw new HttpsError(
+      "invalid-argument",
+      `El campo '${fieldName}' debe ser un color HEX de 6 dígitos (ej: '#1F77B4').`,
+    );
+  }
+  return value;
+}
+
+/**
+ * Fecha ISO opcional. Si el valor llega `undefined`/`null`, devuelve `undefined`.
+ * Si está presente, delega en `assertISODate` (devuelve `Date` ya validado para
+ * que el callable lo pase a `Timestamp.fromDate`). Introducido en B16 para
+ * `Linea.vigenciaDesde`/`vigenciaHasta`.
+ */
+export function assertOptionalISODate(
+  value: unknown,
+  fieldName: string,
+): Date | undefined {
+  if (value === undefined || value === null) return undefined;
+  return assertISODate(value, fieldName);
+}
+
 // ============================================================================
 //  VALIDATORS DE ALTO NIVEL
 // ============================================================================
@@ -485,6 +585,8 @@ const ESTADOS_TENANT_PERMITIDOS = [
 ] as const;
 const ESTADOS_CENTRO_PERMITIDOS = ["activo", "inactivo"] as const;
 const ESTADOS_USUARIO_PERMITIDOS = ["activo", "suspendido"] as const;
+const TIPOS_LINEA_PERMITIDOS = ["urbana", "cercanias", "interurbana"] as const;
+const ESTADOS_LINEA_PERMITIDOS = ["activa", "inactiva", "suspendida"] as const;
 
 export function validateCrearJefeTraficoPayload(
   data: unknown,
@@ -869,5 +971,182 @@ export function validateActualizarUsuarioPayload(
     "estado",
   );
   if (estado !== undefined) result.estado = estado;
+  return result;
+}
+
+/**
+ * Coherencia temporal de la vigencia de una Línea: si ambos extremos están
+ * presentes en el payload, exige `vigenciaDesde < vigenciaHasta`. Compartido
+ * entre CREATE y UPDATE. NOTA (UPDATE parcial): solo cruza los dos campos del
+ * MISMO payload; si se envía un único extremo, no se contrasta contra el valor
+ * almacenado (coherente con la política del módulo de no validar relaciones
+ * temporales contra estado persistido).
+ */
+function assertVigenciaCoherente(
+  desde: Date | undefined,
+  hasta: Date | undefined,
+): void {
+  if (
+    desde !== undefined &&
+    hasta !== undefined &&
+    desde.getTime() >= hasta.getTime()
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "El campo 'vigenciaDesde' debe ser anterior a 'vigenciaHasta'.",
+    );
+  }
+}
+
+export function validateCrearLineaPayload(data: unknown): CrearLineaPayload {
+  const payload = assertPayloadObject(data, "crearLinea");
+  const result: CrearLineaPayload = {
+    tenantId: assertNonEmptyString(payload["tenantId"], "tenantId"),
+    centroId: assertNonEmptyString(payload["centroId"], "centroId"),
+    codigo: assertNonEmptyString(payload["codigo"], "codigo"),
+    nombre: assertNonEmptyString(payload["nombre"], "nombre"),
+    tipo: assertEnum(payload["tipo"], TIPOS_LINEA_PERMITIDOS, "tipo"),
+    esNocturna: assertBoolean(payload["esNocturna"], "esNocturna"),
+    estado: assertEnum(payload["estado"], ESTADOS_LINEA_PERMITIDOS, "estado"),
+  };
+  const color = assertOptionalColorHex(payload["color"], "color");
+  if (color !== undefined) result.color = color;
+  // paradasIda/paradasVuelta: vacíos permitidos. Si se omiten, quedan undefined
+  // aquí y el callable los defaultea a [] (D4.2, patrón crearConductor).
+  const paradasIda = assertOptionalStringArray(
+    payload["paradasIda"],
+    "paradasIda",
+  );
+  if (paradasIda !== undefined) result.paradasIda = paradasIda;
+  const paradasVuelta = assertOptionalStringArray(
+    payload["paradasVuelta"],
+    "paradasVuelta",
+  );
+  if (paradasVuelta !== undefined) result.paradasVuelta = paradasVuelta;
+  const vigenciaDesde = assertOptionalISODate(
+    payload["vigenciaDesde"],
+    "vigenciaDesde",
+  );
+  if (vigenciaDesde !== undefined) result.vigenciaDesde = vigenciaDesde;
+  const vigenciaHasta = assertOptionalISODate(
+    payload["vigenciaHasta"],
+    "vigenciaHasta",
+  );
+  if (vigenciaHasta !== undefined) result.vigenciaHasta = vigenciaHasta;
+  assertVigenciaCoherente(vigenciaDesde, vigenciaHasta);
+  const observaciones = assertOptionalNonEmptyString(
+    payload["observaciones"],
+    "observaciones",
+  );
+  if (observaciones !== undefined) result.observaciones = observaciones;
+  return result;
+}
+
+export function validateActualizarLineaPayload(
+  data: unknown,
+): ActualizarLineaPayload {
+  const payload = assertPayloadObject(data, "actualizarLinea");
+
+  // Veto explícito de inmutables (defensa en profundidad sobre reglas
+  // Firestore). Mensajes específicos.
+  if ("id" in payload) {
+    throw new HttpsError("invalid-argument", "El campo 'id' no es editable.");
+  }
+  if ("tenantId" in payload) {
+    throw new HttpsError(
+      "invalid-argument",
+      "El tenantId no es editable. Una línea pertenece permanentemente al tenant donde se creó.",
+    );
+  }
+  if ("centroId" in payload) {
+    throw new HttpsError(
+      "invalid-argument",
+      "El centroId no es editable. Una línea pertenece permanentemente al centro donde se creó.",
+    );
+  }
+  if ("creadoPor" in payload) {
+    throw new HttpsError(
+      "invalid-argument",
+      "El campo 'creadoPor' no es editable.",
+    );
+  }
+  if ("creadoEn" in payload) {
+    throw new HttpsError(
+      "invalid-argument",
+      "El campo 'creadoEn' no es editable.",
+    );
+  }
+
+  // lineaId siempre obligatorio.
+  const lineaId = assertNonEmptyString(payload["lineaId"], "lineaId");
+
+  // Al menos un campo a actualizar (excluyendo lineaId).
+  const CAMPOS_OPCIONALES_ACTUALIZAR = [
+    "codigo",
+    "nombre",
+    "tipo",
+    "esNocturna",
+    "estado",
+    "color",
+    "paradasIda",
+    "paradasVuelta",
+    "vigenciaDesde",
+    "vigenciaHasta",
+    "observaciones",
+  ] as const;
+  assertAtLeastOneField(
+    payload,
+    CAMPOS_OPCIONALES_ACTUALIZAR,
+    "actualizarLinea",
+  );
+
+  // Validación campo a campo.
+  const result: ActualizarLineaPayload = { lineaId };
+  const codigo = assertOptionalNonEmptyString(payload["codigo"], "codigo");
+  if (codigo !== undefined) result.codigo = codigo;
+  const nombre = assertOptionalNonEmptyString(payload["nombre"], "nombre");
+  if (nombre !== undefined) result.nombre = nombre;
+  const tipo = assertOptionalEnum(
+    payload["tipo"],
+    TIPOS_LINEA_PERMITIDOS,
+    "tipo",
+  );
+  if (tipo !== undefined) result.tipo = tipo;
+  const esNocturna = assertOptionalBoolean(payload["esNocturna"], "esNocturna");
+  if (esNocturna !== undefined) result.esNocturna = esNocturna;
+  const estado = assertOptionalEnum(
+    payload["estado"],
+    ESTADOS_LINEA_PERMITIDOS,
+    "estado",
+  );
+  if (estado !== undefined) result.estado = estado;
+  const color = assertOptionalColorHex(payload["color"], "color");
+  if (color !== undefined) result.color = color;
+  const paradasIda = assertOptionalStringArray(
+    payload["paradasIda"],
+    "paradasIda",
+  );
+  if (paradasIda !== undefined) result.paradasIda = paradasIda;
+  const paradasVuelta = assertOptionalStringArray(
+    payload["paradasVuelta"],
+    "paradasVuelta",
+  );
+  if (paradasVuelta !== undefined) result.paradasVuelta = paradasVuelta;
+  const vigenciaDesde = assertOptionalISODate(
+    payload["vigenciaDesde"],
+    "vigenciaDesde",
+  );
+  if (vigenciaDesde !== undefined) result.vigenciaDesde = vigenciaDesde;
+  const vigenciaHasta = assertOptionalISODate(
+    payload["vigenciaHasta"],
+    "vigenciaHasta",
+  );
+  if (vigenciaHasta !== undefined) result.vigenciaHasta = vigenciaHasta;
+  assertVigenciaCoherente(vigenciaDesde, vigenciaHasta);
+  const observaciones = assertOptionalNonEmptyString(
+    payload["observaciones"],
+    "observaciones",
+  );
+  if (observaciones !== undefined) result.observaciones = observaciones;
   return result;
 }
