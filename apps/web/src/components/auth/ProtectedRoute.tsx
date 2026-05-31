@@ -1,5 +1,5 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
-import { Card, CardContent } from '@/components/ui/card';
+import LoadingShell from '@/components/shared/LoadingShell';
 import { useAuth } from '@/contexts/AuthContext';
 import { homeForRol } from '@/lib/navigation';
 
@@ -53,16 +53,4 @@ export default function ProtectedRoute() {
   }
 
   return <Outlet />;
-}
-
-function LoadingShell() {
-  return (
-    <main className="min-h-screen flex items-center justify-center bg-background p-6">
-      <Card className="w-full max-w-sm">
-        <CardContent className="py-8 text-center text-sm text-muted-foreground">
-          Cargando…
-        </CardContent>
-      </Card>
-    </main>
-  );
 }

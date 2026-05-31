@@ -1,21 +1,29 @@
+import { lazy } from 'react';
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
 import AppLayout from '@/layouts/AppLayout';
+// Páginas eager: viven fuera del <Suspense> de AppLayout. Login es la entrada
+// sin auth; CambiarPassword es flujo crítico de B7; NotFound es el fallback de
+// '*'. Mantenerlas eager evita Suspense boundaries extra sin beneficio. B15.
 import LoginPage from '@/pages/LoginPage';
-import DashboardPage from '@/pages/DashboardPage';
-import CuadrantePage from '@/pages/CuadrantePage';
-import ConductoresPage from '@/pages/ConductoresPage';
-import LineasPage from '@/pages/LineasPage';
-import TiposTurnoPage from '@/pages/TiposTurnoPage';
-import IncidenciasPage from '@/pages/IncidenciasPage';
-import IntercambiosPage from '@/pages/IntercambiosPage';
-import MiHorarioPage from '@/pages/MiHorarioPage';
-import MisPreferenciasPage from '@/pages/MisPreferenciasPage';
-import TenantsPage from '@/pages/TenantsPage';
-import CentrosPage from '@/pages/CentrosPage';
-import UsuariosPage from '@/pages/UsuariosPage';
 import NotFoundPage from '@/pages/NotFoundPage';
 import CambiarPasswordPage from '@/pages/CambiarPasswordPage';
+
+// Páginas lazy: las 12 rutas autenticadas bajo AppLayout. Cada una se emite en
+// su propio chunk diferido y se descarga al navegar; el <Suspense> de AppLayout
+// muestra <LoadingShell fullscreen={false}> mientras tanto. B15 (bundle split).
+const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
+const CuadrantePage = lazy(() => import('@/pages/CuadrantePage'));
+const ConductoresPage = lazy(() => import('@/pages/ConductoresPage'));
+const LineasPage = lazy(() => import('@/pages/LineasPage'));
+const TiposTurnoPage = lazy(() => import('@/pages/TiposTurnoPage'));
+const IncidenciasPage = lazy(() => import('@/pages/IncidenciasPage'));
+const IntercambiosPage = lazy(() => import('@/pages/IntercambiosPage'));
+const MiHorarioPage = lazy(() => import('@/pages/MiHorarioPage'));
+const MisPreferenciasPage = lazy(() => import('@/pages/MisPreferenciasPage'));
+const TenantsPage = lazy(() => import('@/pages/TenantsPage'));
+const CentrosPage = lazy(() => import('@/pages/CentrosPage'));
+const UsuariosPage = lazy(() => import('@/pages/UsuariosPage'));
 
 export const router = createBrowserRouter([
   {
