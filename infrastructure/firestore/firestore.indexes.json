@@ -23,6 +23,15 @@
         { "fieldPath": "centroId", "order": "ASCENDING" },
         { "fieldPath": "codigo", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "lineas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tenantId", "order": "ASCENDING" },
+        { "fieldPath": "centroId", "order": "ASCENDING" },
+        { "fieldPath": "codigo", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
