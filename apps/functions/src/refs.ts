@@ -124,14 +124,13 @@ export async function assertTenantActivo(
 }
 
 /**
- * Verifica que el centro existe Y está activo antes de crear una línea (u otra
- * entidad hija) bajo él. Paralelo a `assertTenantActivo` (D5.1) con la misma
- * semántica de códigos (D5.2): centro inexistente → 'invalid-argument' (ID
- * inválido); centro existente pero `estado !== 'activo'` → 'failed-precondition'
- * (el estado del padre bloquea la creación de la entidad hija).
+ * Verifica que el centro existe Y está activo antes de crear una entidad hija
+ * (línea, tipo de turno, …) bajo él. Paralelo a `assertTenantActivo` (D5.1) con
+ * la misma semántica de códigos (D5.2): centro inexistente → 'invalid-argument'
+ * (ID inválido); centro existente pero `estado !== 'activo'` →
+ * 'failed-precondition' (el estado del padre bloquea la creación de la hija).
  *
- * Mensaje de `failed-precondition` indica explícitamente que no se crean
- * líneas en centros inactivos.
+ * Mensaje genérico (lo comparten ≥2 callers: crearLinea B16, crearTipoTurno B18).
  */
 export async function assertCentroActivo(
   db: Firestore,
@@ -150,7 +149,7 @@ export async function assertCentroActivo(
     throw new HttpsError(
       "failed-precondition",
       `El centro '${centroId}' no está activo (estado=${typeof estado === "string" ? estado : "desconocido"}). ` +
-        `No pueden crearse líneas en centros inactivos.`,
+        `No pueden crearse entidades operativas en centros inactivos.`,
     );
   }
 }
@@ -274,6 +273,34 @@ export async function assertCodigoLineaUnico(
       throw new HttpsError(
         "already-exists",
         `Ya existe una línea con código '${codigo}' en este centro.`,
+      );
+    }
+  }
+}
+
+/**
+ * Verifica que el `codigo` de tipo de turno es único DENTRO DEL CENTRO (D6.3),
+ * clon de `assertCodigoLineaUnico` (B16). Query con dos filtros de igualdad
+ * `where(centroId == X) AND where(codigo == Y)`. `excludeId` lo usa
+ * `actualizarTipoTurno` para no chocar consigo mismo al revalidar tras cambiar
+ * el código. Respaldado por el índice `(tipos_turno: tenantId+centroId+codigo)`.
+ */
+export async function assertCodigoTipoTurnoUnico(
+  db: Firestore,
+  centroId: string,
+  codigo: string,
+  excludeId?: string,
+): Promise<void> {
+  const snap = await db
+    .collection(COLLECTIONS.TIPOS_TURNO)
+    .where("centroId", "==", centroId)
+    .where("codigo", "==", codigo)
+    .get();
+  for (const ttDoc of snap.docs) {
+    if (excludeId === undefined || ttDoc.id !== excludeId) {
+      throw new HttpsError(
+        "already-exists",
+        `Ya existe un tipo de turno con código '${codigo}' en este centro.`,
       );
     }
   }

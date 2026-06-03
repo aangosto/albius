@@ -55,8 +55,6 @@ export type TipoDia = 'laborable' | 'sabado' | 'domingo' | 'festivo';
 
 export type SentidoLinea = 'ida' | 'vuelta' | 'ambos';
 
-export type TipoFranjaTurno = 'mañana' | 'tarde' | 'nocturno' | 'partido';
-
 export type EstadoTipoTurno = 'activo' | 'obsoleto';
 
 export type EstadoServicio =
@@ -355,18 +353,22 @@ export interface TramoPartido {
 export interface TipoTurno {
   id: string;
   tenantId: string;
-  centroId?: string; // null = aplica a todos los centros del tenant
-  codigo: string; // "M-LARGO"
+  centroId: string; // requerido — un tipo de turno cuelga de un centro (D5.1)
+  codigo: string; // "M-LARGO" — único por centro (D6.3)
   nombre: string;
   horaInicio: string; // "HH:mm"
-  horaFin: string; // "HH:mm"
-  duracionMinutos: number;
-  duracionEfectivaMinutos: number;
+  horaFin: string; // "HH:mm"; si horaFin < horaInicio, el turno cruza medianoche
+  duracionMinutos: number; // duración total declarada (puede diferir de fin-inicio)
+  duracionEfectivaMinutos: number; // tiempo efectivo de conducción (<= duracionMinutos)
   esPartido: boolean;
-  tramosPartido?: TramoPartido[];
-  tipoFranja: TipoFranjaTurno;
-  estado: EstadoTipoTurno;
-  fechaCreacion: Timestamp;
+  tramosPartido?: TramoPartido[]; // requerido y no vacío si esPartido (validado en backend)
+  esNocturno: boolean; // a efectos de convenio; ortogonal a esPartido
+  color?: string; // HEX "#FFD700" — opcional, validado si presente
+  estado: EstadoTipoTurno; // 'activo' | 'obsoleto' (soft-delete D4.3 vía 'obsoleto')
+  creadoPor?: string; // D3.7
+  creadoEn?: Timestamp; // D3.7 — reemplaza fechaCreacion
+  actualizadoPor?: string; // D4.1
+  actualizadoEn?: Timestamp; // D4.1
 }
 
 // ============================================================================

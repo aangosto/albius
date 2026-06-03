@@ -32,6 +32,15 @@
         { "fieldPath": "centroId", "order": "ASCENDING" },
         { "fieldPath": "codigo", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "tipos_turno",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tenantId", "order": "ASCENDING" },
+        { "fieldPath": "centroId", "order": "ASCENDING" },
+        { "fieldPath": "codigo", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

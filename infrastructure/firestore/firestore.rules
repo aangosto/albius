@@ -233,6 +233,44 @@ service cloud.firestore {
     }
 
     // ========================================================================
+    //  4.6  TIPOS_TURNO
+    // ========================================================================
+    //
+    //  Plantilla de tipo de turno OPERATIVA colgada de un centro (B18): el jefe
+    //  de tráfico gestiona los tipos de su centro. Mismo patrón que /lineas
+    //  (escritura de jefe scoped por tenant), NO /centros (solo super_admin).
+    //  Los callables crear/actualizarTipoTurno autorizan al jefe; la regla
+    //  declara la misma política, no una más restrictiva.
+    //
+    //  read tenant-scoped; write (create/update) super_admin o jefe del mismo
+    //  tenant + veto de inmutables (id, tenantId, centroId, creadoPor, creadoEn)
+    //  en update. La regla es tenant-scoped (sameTenant); el callable es
+    //  centro-scoped (anti-cross-centro). La verdad operativa la impone el
+    //  callable; la regla es defensa de último recurso. Listado de cliente: el
+    //  jefe DEBE filtrar where('tenantId') por D6.5 (sameTenant en list no puede
+    //  leer resource.data).
+
+    match /tipos_turno/{id} {
+      allow read: if isSuperAdmin()
+                  || (isAuth() && sameTenant(resource.data.tenantId));
+
+      allow create: if (isSuperAdmin() || isJefeTrafico())
+                    && sameTenant(request.resource.data.tenantId);
+
+      allow update: if (isSuperAdmin() || isJefeTrafico())
+                    && sameTenant(resource.data.tenantId)
+                    && !fieldsChanged([
+                      'id',
+                      'tenantId',
+                      'centroId',
+                      'creadoPor',
+                      'creadoEn'
+                    ]);
+
+      allow delete: if isSuperAdmin();
+    }
+
+    // ========================================================================
     //  COLECCIONES NO ABIERTAS EN ESTA SESIÓN — DENY-ALL EXPLÍCITO
     // ========================================================================
     //
@@ -246,7 +284,6 @@ service cloud.firestore {
     match /paradas/{id}                   { allow read, write: if false; }
     match /frecuencias/{id}               { allow read, write: if false; }
     match /frecuencias_excepcionales/{id} { allow read, write: if false; }
-    match /tipos_turno/{id}               { allow read, write: if false; }
     match /servicios/{id}                 { allow read, write: if false; }
     match /cuadrantes/{id}                { allow read, write: if false; }
     match /versiones_cuadrante/{id}       { allow read, write: if false; }

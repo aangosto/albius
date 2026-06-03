@@ -4,9 +4,11 @@ import type {
   EstadoCentro,
   EstadoLinea,
   EstadoTenant,
+  EstadoTipoTurno,
   EstadoUsuario,
   PlanTenant,
   TipoLinea,
+  TramoPartido,
 } from "@albius/shared";
 
 /**
@@ -30,6 +32,9 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Color HEX de 6 dígitos con almohadilla ("#1F77B4"). Usado por Linea.color.
 const COLOR_HEX_REGEX = /^#[0-9A-Fa-f]{6}$/;
+
+// Hora "HH:mm" 24h (00:00–23:59). Usado por TipoTurno (horaInicio/Fin, tramos).
+const HORA_HHMM_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 // ============================================================================
 //  TIPOS DE PAYLOAD
@@ -243,6 +248,55 @@ export interface ActualizarLineaPayload {
   vigenciaDesde?: Date;
   vigenciaHasta?: Date;
   observaciones?: string;
+}
+
+/**
+ * Payload de crearTipoTurno (B18). Entidad operativa del jefe que cuelga de un
+ * centro (D5.1, `centroId` requerido), hermana de Línea.
+ *
+ * `tramosPartido` es requerido y no vacío SOLO si `esPartido` (validación
+ * cruzada). `esNocturno` es a efectos de convenio, ortogonal a `esPartido`.
+ * `duracionEfectivaMinutos <= duracionMinutos`. Horas en "HH:mm"; si
+ * `horaFin < horaInicio` el turno cruza medianoche (no se valida que
+ * `duracionMinutos == fin-inicio`: es declarada, puede diferir del convenio).
+ */
+export interface CrearTipoTurnoPayload {
+  tenantId: string;
+  centroId: string;
+  codigo: string;
+  nombre: string;
+  horaInicio: string;
+  horaFin: string;
+  duracionMinutos: number;
+  duracionEfectivaMinutos: number;
+  esPartido: boolean;
+  esNocturno: boolean;
+  estado: EstadoTipoTurno;
+  color?: string;
+  tramosPartido?: TramoPartido[];
+}
+
+/**
+ * Payload de actualizarTipoTurno. `tipoTurnoId` siempre obligatorio; el resto
+ * opcional, pero el validator exige al menos uno (assertAtLeastOneField).
+ *
+ * Inmutables vetados (defensa en profundidad sobre reglas Firestore): `id`,
+ * `tenantId`, `centroId`, `creadoPor`, `creadoEn`. `codigo` editable (el
+ * callable revalida unicidad por centro con excludeId).
+ */
+export interface ActualizarTipoTurnoPayload {
+  tipoTurnoId: string;
+  codigo?: string;
+  nombre?: string;
+  horaInicio?: string;
+  horaFin?: string;
+  duracionMinutos?: number;
+  duracionEfectivaMinutos?: number;
+  esPartido?: boolean;
+  esNocturno?: boolean;
+  estado?: EstadoTipoTurno;
+  color?: string;
+  tramosPartido?: TramoPartido[];
 }
 
 // ============================================================================
@@ -559,6 +613,35 @@ export function assertOptionalColorHex(
 }
 
 /**
+ * Hora "HH:mm" 24h (00:00–23:59). Devuelve el string validado. Introducido en
+ * B18 para TipoTurno (horaInicio/horaFin y los tramos del partido).
+ */
+export function assertHoraHHmm(value: unknown, fieldName: string): string {
+  if (typeof value !== "string" || !HORA_HHMM_REGEX.test(value)) {
+    throw new HttpsError(
+      "invalid-argument",
+      `El campo '${fieldName}' debe ser una hora 'HH:mm' (00:00–23:59).`,
+    );
+  }
+  return value;
+}
+
+/**
+ * Número positivo finito REQUERIDO (> 0). Versión no-opcional de
+ * `assertOptionalPositiveNumber`. Introducido en B18 para las duraciones de
+ * TipoTurno (requeridas en CREATE).
+ */
+export function assertPositiveNumber(value: unknown, fieldName: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    throw new HttpsError(
+      "invalid-argument",
+      `El campo '${fieldName}' debe ser un número positivo finito.`,
+    );
+  }
+  return value;
+}
+
+/**
  * Fecha ISO opcional. Si el valor llega `undefined`/`null`, devuelve `undefined`.
  * Si está presente, delega en `assertISODate` (devuelve `Date` ya validado para
  * que el callable lo pase a `Timestamp.fromDate`). Introducido en B16 para
@@ -587,6 +670,7 @@ const ESTADOS_CENTRO_PERMITIDOS = ["activo", "inactivo"] as const;
 const ESTADOS_USUARIO_PERMITIDOS = ["activo", "suspendido"] as const;
 const TIPOS_LINEA_PERMITIDOS = ["urbana", "cercanias", "interurbana"] as const;
 const ESTADOS_LINEA_PERMITIDOS = ["activa", "inactiva", "suspendida"] as const;
+const ESTADOS_TIPO_TURNO_PERMITIDOS = ["activo", "obsoleto"] as const;
 
 export function validateCrearJefeTraficoPayload(
   data: unknown,
@@ -1150,3 +1234,265 @@ export function validateActualizarLineaPayload(
   if (observaciones !== undefined) result.observaciones = observaciones;
   return result;
 }
+
+// ---------------------------------------------------------------------------
+//  TipoTurno (B18)
+// ---------------------------------------------------------------------------
+
+function toMinutos(hhmm: string): number {
+  const [h, m] = hhmm.split(":");
+  return Number(h) * 60 + Number(m);
+}
+
+/**
+ * Valida los tramos de un turno partido: array no vacío de `{inicio, fin}` en
+ * "HH:mm", cada tramo con `inicio < fin`. Si se conocen `horaInicio`/`horaFin`
+ * del turno Y el turno NO cruza medianoche, exige además que cada tramo caiga
+ * dentro de `[horaInicio, horaFin]`.
+ *
+ * TODO[tramos-partido-dentro-de-rango]: el chequeo de rango se omite cuando el
+ * turno cruza medianoche (`horaFin <= horaInicio`) o cuando no se conocen ambos
+ * extremos (UPDATE parcial sin ambas horas en el payload). En esos casos solo
+ * se valida formato + orden interno de cada tramo. Completar el caso medianoche
+ * cuando surja un turno partido que cruce las 00:00.
+ */
+function assertTramosPartido(
+  value: unknown,
+  fieldName: string,
+  horaInicio?: string,
+  horaFin?: string,
+): TramoPartido[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new HttpsError(
+      "invalid-argument",
+      `El campo '${fieldName}' es requerido y no puede estar vacío cuando el turno es partido.`,
+    );
+  }
+  const rango =
+    horaInicio !== undefined &&
+    horaFin !== undefined &&
+    toMinutos(horaFin) > toMinutos(horaInicio)
+      ? { ini: toMinutos(horaInicio), fin: toMinutos(horaFin) }
+      : null;
+  return value.map((t: unknown, i: number) => {
+    const obj = assertPayloadObject(t, `${fieldName}[${i}]`);
+    const inicio = assertHoraHHmm(obj["inicio"], `${fieldName}[${i}].inicio`);
+    const fin = assertHoraHHmm(obj["fin"], `${fieldName}[${i}].fin`);
+    const ti = toMinutos(inicio);
+    const tf = toMinutos(fin);
+    if (ti >= tf) {
+      throw new HttpsError(
+        "invalid-argument",
+        `El tramo '${fieldName}[${i}]' debe tener 'inicio' anterior a 'fin'.`,
+      );
+    }
+    if (rango !== null && (ti < rango.ini || tf > rango.fin)) {
+      throw new HttpsError(
+        "invalid-argument",
+        `El tramo '${fieldName}[${i}]' debe estar dentro del rango del turno (${horaInicio}–${horaFin}).`,
+      );
+    }
+    return { inicio, fin };
+  });
+}
+
+export function validateCrearTipoTurnoPayload(
+  data: unknown,
+): CrearTipoTurnoPayload {
+  const payload = assertPayloadObject(data, "crearTipoTurno");
+
+  const horaInicio = assertHoraHHmm(payload["horaInicio"], "horaInicio");
+  const horaFin = assertHoraHHmm(payload["horaFin"], "horaFin");
+  const duracionMinutos = assertPositiveNumber(
+    payload["duracionMinutos"],
+    "duracionMinutos",
+  );
+  const duracionEfectivaMinutos = assertPositiveNumber(
+    payload["duracionEfectivaMinutos"],
+    "duracionEfectivaMinutos",
+  );
+  if (duracionEfectivaMinutos > duracionMinutos) {
+    throw new HttpsError(
+      "invalid-argument",
+      "El campo 'duracionEfectivaMinutos' no puede superar 'duracionMinutos'.",
+    );
+  }
+  const esPartido = assertBoolean(payload["esPartido"], "esPartido");
+
+  const result: CrearTipoTurnoPayload = {
+    tenantId: assertNonEmptyString(payload["tenantId"], "tenantId"),
+    centroId: assertNonEmptyString(payload["centroId"], "centroId"),
+    codigo: assertNonEmptyString(payload["codigo"], "codigo"),
+    nombre: assertNonEmptyString(payload["nombre"], "nombre"),
+    horaInicio,
+    horaFin,
+    duracionMinutos,
+    duracionEfectivaMinutos,
+    esPartido,
+    esNocturno: assertBoolean(payload["esNocturno"], "esNocturno"),
+    estado: assertEnum(
+      payload["estado"],
+      ESTADOS_TIPO_TURNO_PERMITIDOS,
+      "estado",
+    ),
+  };
+  const color = assertOptionalColorHex(payload["color"], "color");
+  if (color !== undefined) result.color = color;
+
+  // Validación cruzada esPartido ↔ tramosPartido.
+  if (esPartido) {
+    result.tramosPartido = assertTramosPartido(
+      payload["tramosPartido"],
+      "tramosPartido",
+      horaInicio,
+      horaFin,
+    );
+  } else if (payload["tramosPartido"] !== undefined) {
+    throw new HttpsError(
+      "invalid-argument",
+      "El campo 'tramosPartido' solo se permite cuando 'esPartido' es true.",
+    );
+  }
+  return result;
+}
+
+export function validateActualizarTipoTurnoPayload(
+  data: unknown,
+): ActualizarTipoTurnoPayload {
+  const payload = assertPayloadObject(data, "actualizarTipoTurno");
+
+  // Veto de inmutables (defensa en profundidad sobre reglas Firestore).
+  if ("id" in payload) {
+    throw new HttpsError("invalid-argument", "El campo 'id' no es editable.");
+  }
+  if ("tenantId" in payload) {
+    throw new HttpsError(
+      "invalid-argument",
+      "El tenantId no es editable. Un tipo de turno pertenece permanentemente al tenant donde se creó.",
+    );
+  }
+  if ("centroId" in payload) {
+    throw new HttpsError(
+      "invalid-argument",
+      "El centroId no es editable. Un tipo de turno pertenece permanentemente al centro donde se creó.",
+    );
+  }
+  if ("creadoPor" in payload) {
+    throw new HttpsError(
+      "invalid-argument",
+      "El campo 'creadoPor' no es editable.",
+    );
+  }
+  if ("creadoEn" in payload) {
+    throw new HttpsError(
+      "invalid-argument",
+      "El campo 'creadoEn' no es editable.",
+    );
+  }
+
+  const tipoTurnoId = assertNonEmptyString(
+    payload["tipoTurnoId"],
+    "tipoTurnoId",
+  );
+
+  const CAMPOS_OPCIONALES_ACTUALIZAR = [
+    "codigo",
+    "nombre",
+    "horaInicio",
+    "horaFin",
+    "duracionMinutos",
+    "duracionEfectivaMinutos",
+    "esPartido",
+    "esNocturno",
+    "estado",
+    "color",
+    "tramosPartido",
+  ] as const;
+  assertAtLeastOneField(
+    payload,
+    CAMPOS_OPCIONALES_ACTUALIZAR,
+    "actualizarTipoTurno",
+  );
+
+  const result: ActualizarTipoTurnoPayload = { tipoTurnoId };
+
+  const codigo = assertOptionalNonEmptyString(payload["codigo"], "codigo");
+  if (codigo !== undefined) result.codigo = codigo;
+  const nombre = assertOptionalNonEmptyString(payload["nombre"], "nombre");
+  if (nombre !== undefined) result.nombre = nombre;
+
+  let horaInicio: string | undefined;
+  if (payload["horaInicio"] !== undefined) {
+    horaInicio = assertHoraHHmm(payload["horaInicio"], "horaInicio");
+    result.horaInicio = horaInicio;
+  }
+  let horaFin: string | undefined;
+  if (payload["horaFin"] !== undefined) {
+    horaFin = assertHoraHHmm(payload["horaFin"], "horaFin");
+    result.horaFin = horaFin;
+  }
+
+  let durTotal: number | undefined;
+  if (payload["duracionMinutos"] !== undefined) {
+    durTotal = assertPositiveNumber(
+      payload["duracionMinutos"],
+      "duracionMinutos",
+    );
+    result.duracionMinutos = durTotal;
+  }
+  let durEfectiva: number | undefined;
+  if (payload["duracionEfectivaMinutos"] !== undefined) {
+    durEfectiva = assertPositiveNumber(
+      payload["duracionEfectivaMinutos"],
+      "duracionEfectivaMinutos",
+    );
+    result.duracionEfectivaMinutos = durEfectiva;
+  }
+  if (
+    durTotal !== undefined &&
+    durEfectiva !== undefined &&
+    durEfectiva > durTotal
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "El campo 'duracionEfectivaMinutos' no puede superar 'duracionMinutos'.",
+    );
+  }
+
+  const esPartido = assertOptionalBoolean(payload["esPartido"], "esPartido");
+  if (esPartido !== undefined) result.esPartido = esPartido;
+  const esNocturno = assertOptionalBoolean(payload["esNocturno"], "esNocturno");
+  if (esNocturno !== undefined) result.esNocturno = esNocturno;
+  const estado = assertOptionalEnum(
+    payload["estado"],
+    ESTADOS_TIPO_TURNO_PERMITIDOS,
+    "estado",
+  );
+  if (estado !== undefined) result.estado = estado;
+  const colorTT = assertOptionalColorHex(payload["color"], "color");
+  if (colorTT !== undefined) result.color = colorTT;
+
+  // Validación cruzada esPartido ↔ tramosPartido del MISMO payload (no se
+  // contrasta contra el doc almacenado, coherente con la política del módulo).
+  if (payload["tramosPartido"] !== undefined) {
+    if (esPartido === false) {
+      throw new HttpsError(
+        "invalid-argument",
+        "El campo 'tramosPartido' no se permite cuando 'esPartido' es false.",
+      );
+    }
+    result.tramosPartido = assertTramosPartido(
+      payload["tramosPartido"],
+      "tramosPartido",
+      horaInicio,
+      horaFin,
+    );
+  } else if (esPartido === true) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Si 'esPartido' pasa a true debes enviar 'tramosPartido' (no vacío).",
+    );
+  }
+  return result;
+}
+

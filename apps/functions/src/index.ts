@@ -40,3 +40,5 @@ export { actualizarCentro } from "./callables/actualizarCentro";
 export { actualizarUsuario } from "./callables/actualizarUsuario";
 export { crearLinea } from "./callables/crearLinea";
 export { actualizarLinea } from "./callables/actualizarLinea";
+export { crearTipoTurno } from "./callables/crearTipoTurno";
+export { actualizarTipoTurno } from "./callables/actualizarTipoTurno";
