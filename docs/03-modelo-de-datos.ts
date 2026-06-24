@@ -565,12 +565,14 @@ export interface Festivo {
 }
 
 // ============================================================================
-//  4.20  CONVENIO – Reglas legales configurables por tenant
+//  4.20  CONVENIO – Reglas legales configurables por CENTRO (singleton)
 // ============================================================================
+//  Migrado de POR-TENANT a POR-CENTRO en B25 (§10). Singleton: id = centroId.
 
 export interface Convenio {
-  id: string; // Coincide con tenantId
-  tenantId: string;
+  id: string; // Coincide con centroId (singleton: exactamente uno por centro)
+  centroId: string; // = id; el centro al que aplica el convenio
+  tenantId: string; // denormalizado (scoping de reglas / queries)
   convenioReferencia?: string;
   descansoMinimoEntreJornadasHoras: number;
   maxHorasSemanales: number;
@@ -581,8 +583,12 @@ export interface Convenio {
   descansoSemanalMinimoHoras: number;
   antelacionMinimaPublicacionDias: number;
   horasFestivoComputanComoExtras: boolean;
-  fechaUltimaActualizacion: Timestamp;
-  actualizadoPor: string; // super admin user ID
+  computoHoras?: 'jornada' | 'conduccion'; // R3 spike: jornada total vs conducción efectiva
+  // --- Auditoría canónica D6.4 (opcionales) ---
+  creadoPor?: string;
+  creadoEn?: Timestamp;
+  actualizadoPor?: string;
+  actualizadoEn?: Timestamp;
 }
 
 // ============================================================================

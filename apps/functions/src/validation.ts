@@ -402,6 +402,35 @@ export interface ActualizarFrecuenciaExcepcionalPayload {
   activa?: boolean;
 }
 
+/**
+ * Payload de guardarConvenio (B25). UPSERT: un solo callable, no hay crear/
+ * actualizar separados, porque `id` = `centroId` es determinista (singleton por
+ * centro). `tenantId` y `centroId` son requeridos (identifican y scopean el
+ * doc); los 9 campos de restricciones del convenio son requeridos. Opcionales:
+ * `convenioReferencia` (string no vacío) y `computoHoras` ('jornada'|'conduccion').
+ *
+ * Campos server-managed VETADOS en el payload (invalid-argument): id, creadoPor,
+ * creadoEn, actualizadoPor, actualizadoEn. `centroId`/`tenantId` NO se vetan
+ * (son inputs requeridos) pero el callable impone que el `tenantId` no cambie en
+ * UPDATE (el centro pertenece permanentemente a su tenant) y que el `centroId`
+ * es inmutable por construcción (= doc id).
+ */
+export interface GuardarConvenioPayload {
+  tenantId: string;
+  centroId: string;
+  convenioReferencia?: string;
+  descansoMinimoEntreJornadasHoras: number;
+  maxHorasSemanales: number;
+  maxHorasAnuales: number;
+  minDomingosLibresAño: number;
+  maxFinesSemanaConsecutivosTrabajados: number;
+  maxDiasConsecutivosTrabajados: number;
+  descansoSemanalMinimoHoras: number;
+  antelacionMinimaPublicacionDias: number;
+  horasFestivoComputanComoExtras: boolean;
+  computoHoras?: "jornada" | "conduccion";
+}
+
 // ============================================================================
 //  HELPERS ATÓMICOS
 // ============================================================================
@@ -1950,6 +1979,138 @@ export function validateActualizarFrecuenciaExcepcionalPayload(
   if (motivo !== undefined) result.motivo = motivo;
   const activa = assertOptionalBoolean(payload["activa"], "activa");
   if (activa !== undefined) result.activa = activa;
+  return result;
+}
+
+// ============================================================================
+//  CONVENIO (B25) — upsert singleton por centro
+// ============================================================================
+
+/**
+ * Número finito dentro de un rango de sanidad. `exclusiveMin` para límites que
+ * deben ser estrictamente positivos (ej. horas semanales > 0); `integer` para
+ * conteos de días/domingos/fines de semana. Sanidad básica del convenio (no
+ * clínicamente estricta): rechaza negativos, no-finitos y valores absurdos.
+ */
+function assertNumeroLimite(
+  value: unknown,
+  fieldName: string,
+  opts: { min: number; max: number; integer?: boolean; exclusiveMin?: boolean },
+): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new HttpsError(
+      "invalid-argument",
+      `El campo '${fieldName}' es requerido y debe ser un número finito.`,
+    );
+  }
+  if (opts.integer && !Number.isInteger(value)) {
+    throw new HttpsError(
+      "invalid-argument",
+      `El campo '${fieldName}' debe ser un número entero.`,
+    );
+  }
+  const bajoMin = opts.exclusiveMin ? value <= opts.min : value < opts.min;
+  if (bajoMin || value > opts.max) {
+    const lim = opts.exclusiveMin
+      ? `> ${opts.min} y <= ${opts.max}`
+      : `entre ${opts.min} y ${opts.max}`;
+    throw new HttpsError(
+      "invalid-argument",
+      `El campo '${fieldName}' debe estar ${lim}.`,
+    );
+  }
+  return value;
+}
+
+/**
+ * Valida el payload de guardarConvenio (B25 — UPSERT singleton por centro).
+ * Veta campos server-managed; exige tenantId/centroId + los 9 límites; valida
+ * rangos de sanidad. Devuelve un payload tipado.
+ */
+export function validateGuardarConvenioPayload(
+  data: unknown,
+): GuardarConvenioPayload {
+  const payload = assertPayloadObject(data, "guardarConvenio");
+
+  // Veto de campos server-managed (defensa en profundidad sobre reglas).
+  for (const campo of [
+    "id",
+    "creadoPor",
+    "creadoEn",
+    "actualizadoPor",
+    "actualizadoEn",
+  ] as const) {
+    if (campo in payload) {
+      throw new HttpsError(
+        "invalid-argument",
+        `El campo '${campo}' no es editable.`,
+      );
+    }
+  }
+
+  const result: GuardarConvenioPayload = {
+    tenantId: assertNonEmptyString(payload["tenantId"], "tenantId"),
+    centroId: assertNonEmptyString(payload["centroId"], "centroId"),
+    descansoMinimoEntreJornadasHoras: assertNumeroLimite(
+      payload["descansoMinimoEntreJornadasHoras"],
+      "descansoMinimoEntreJornadasHoras",
+      { min: 0, max: 24, exclusiveMin: true },
+    ),
+    maxHorasSemanales: assertNumeroLimite(
+      payload["maxHorasSemanales"],
+      "maxHorasSemanales",
+      { min: 0, max: 168, exclusiveMin: true },
+    ),
+    maxHorasAnuales: assertNumeroLimite(
+      payload["maxHorasAnuales"],
+      "maxHorasAnuales",
+      { min: 0, max: 8784, exclusiveMin: true },
+    ),
+    minDomingosLibresAño: assertNumeroLimite(
+      payload["minDomingosLibresAño"],
+      "minDomingosLibresAño",
+      { min: 0, max: 53, integer: true }, // puede ser 0
+    ),
+    maxFinesSemanaConsecutivosTrabajados: assertNumeroLimite(
+      payload["maxFinesSemanaConsecutivosTrabajados"],
+      "maxFinesSemanaConsecutivosTrabajados",
+      { min: 0, max: 53, integer: true },
+    ),
+    maxDiasConsecutivosTrabajados: assertNumeroLimite(
+      payload["maxDiasConsecutivosTrabajados"],
+      "maxDiasConsecutivosTrabajados",
+      { min: 1, max: 31, integer: true },
+    ),
+    descansoSemanalMinimoHoras: assertNumeroLimite(
+      payload["descansoSemanalMinimoHoras"],
+      "descansoSemanalMinimoHoras",
+      { min: 0, max: 168, exclusiveMin: true },
+    ),
+    antelacionMinimaPublicacionDias: assertNumeroLimite(
+      payload["antelacionMinimaPublicacionDias"],
+      "antelacionMinimaPublicacionDias",
+      { min: 0, max: 365, integer: true },
+    ),
+    horasFestivoComputanComoExtras: assertBoolean(
+      payload["horasFestivoComputanComoExtras"],
+      "horasFestivoComputanComoExtras",
+    ),
+  };
+
+  const convenioReferencia = assertOptionalNonEmptyString(
+    payload["convenioReferencia"],
+    "convenioReferencia",
+  );
+  if (convenioReferencia !== undefined)
+    result.convenioReferencia = convenioReferencia;
+
+  const computoHoras = assertOptionalEnum(
+    payload["computoHoras"],
+    ["jornada", "conduccion"] as const,
+    "computoHoras",
+  );
+  if (computoHoras !== undefined) result.computoHoras = computoHoras;
+
   return result;
 }
 

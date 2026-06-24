@@ -325,6 +325,42 @@ service cloud.firestore {
     }
 
     // ========================================================================
+    //  4.20  CONVENIO
+    // ========================================================================
+    //
+    //  Convenio SINGLETON por centro (B25): id = centroId, exactamente uno por
+    //  centro. Parametriza las restricciones del optimizador. Mismo patrón que
+    //  /lineas y /tipos_turno (escritura de jefe scoped por tenant), NO /centros
+    //  (solo super_admin). El upsert real va por el callable guardarConvenio
+    //  (Admin SDK); la regla declara la misma política + veto de inmutables (id,
+    //  tenantId, centroId, creadoPor, creadoEn) en update por defensa en
+    //  profundidad.
+    //
+    //  read es get-by-id (id = centroId, NO list) → el bug D6.5 de sameTenant en
+    //  list (no puede leer resource.data) NO aplica aquí: en un get, resource.data
+    //  está disponible y sameTenant(resource.data.tenantId) evalúa correctamente.
+
+    match /convenio/{centroId} {
+      allow read: if isSuperAdmin()
+                  || (isAuth() && sameTenant(resource.data.tenantId));
+
+      allow create: if (isSuperAdmin() || isJefeTrafico())
+                    && sameTenant(request.resource.data.tenantId);
+
+      allow update: if (isSuperAdmin() || isJefeTrafico())
+                    && sameTenant(resource.data.tenantId)
+                    && !fieldsChanged([
+                      'id',
+                      'tenantId',
+                      'centroId',
+                      'creadoPor',
+                      'creadoEn'
+                    ]);
+
+      allow delete: if isSuperAdmin();
+    }
+
+    // ========================================================================
     //  COLECCIONES NO ABIERTAS EN ESTA SESIÓN — DENY-ALL EXPLÍCITO
     // ========================================================================
     //
@@ -346,7 +382,6 @@ service cloud.firestore {
     match /solicitudes_intercambio/{id}   { allow read, write: if false; }
     match /incidencias/{id}               { allow read, write: if false; }
     match /festivos/{id}                  { allow read, write: if false; }
-    match /convenio/{id}                  { allow read, write: if false; }
     match /notificaciones/{id}            { allow read, write: if false; }
     match /audit_logs/{id}                { allow read, write: if false; }
   }

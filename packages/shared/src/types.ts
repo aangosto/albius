@@ -607,12 +607,20 @@ export interface Festivo {
 }
 
 // ============================================================================
-//  4.20  CONVENIO – Reglas legales configurables por tenant
+//  4.20  CONVENIO – Reglas legales configurables por CENTRO (singleton)
 // ============================================================================
+//
+//  Singleton por centro: exactamente un documento por centro, con `id` =
+//  `centroId` (determinista, sin auto-id). Parametriza las restricciones que
+//  el optimizador de cuadrantes respeta (R1-R6 validadas en spike Pyomo).
+//  Migrado de POR-TENANT a POR-CENTRO en B25 (§10): los horarios y la operativa
+//  dependen del convenio/operativa local del centro (decisión cerrada B18).
+//  No tiene `estado` (singleton, no aplica soft-delete D5.3).
 
 export interface Convenio {
-  id: string; // Coincide con tenantId
-  tenantId: string;
+  id: string; // Coincide con centroId (singleton: exactamente uno por centro)
+  centroId: string; // = id; el centro al que aplica el convenio
+  tenantId: string; // denormalizado (scoping de reglas / queries)
   convenioReferencia?: string;
   descansoMinimoEntreJornadasHoras: number;
   maxHorasSemanales: number;
@@ -623,8 +631,14 @@ export interface Convenio {
   descansoSemanalMinimoHoras: number;
   antelacionMinimaPublicacionDias: number;
   horasFestivoComputanComoExtras: boolean;
-  fechaUltimaActualizacion: Timestamp;
-  actualizadoPor: string; // super admin user ID
+  // R3 del spike: ¿el máximo de horas computa la duración total de la jornada
+  // o solo la conducción efectiva del turno? (resuelve el TODO del SPEC).
+  computoHoras?: 'jornada' | 'conduccion';
+  // --- Auditoría canónica D6.4 (opcionales) ---
+  creadoPor?: string;
+  creadoEn?: Timestamp;
+  actualizadoPor?: string;
+  actualizadoEn?: Timestamp;
 }
 
 // ============================================================================

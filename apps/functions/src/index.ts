@@ -47,3 +47,4 @@ export { crearFrecuencia } from "./callables/crearFrecuencia";
 export { actualizarFrecuencia } from "./callables/actualizarFrecuencia";
 export { crearFrecuenciaExcepcional } from "./callables/crearFrecuenciaExcepcional";
 export { actualizarFrecuenciaExcepcional } from "./callables/actualizarFrecuenciaExcepcional";
+export { guardarConvenio } from "./callables/guardarConvenio";
