@@ -47,3 +47,10 @@ ui-debug.log
 
 # TypeScript
 *.tsbuildinfo
+
+# Playwright E2E (B20)
+apps/web/e2e/.auth/
+apps/web/test-results/
+apps/web/playwright-report/
+apps/web/blob-report/
+apps/web/.last-run.json

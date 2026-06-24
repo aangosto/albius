@@ -55,5 +55,13 @@ export default [
       globals: { ...globals.node },
     },
   },
+  {
+    // E2E Playwright (B20): corren en Node, no en el navegador. Añaden globals
+    // de node (process, fetch) sobre el bloque apps/web/** anterior.
+    files: ['apps/web/e2e/**/*.ts', 'apps/web/playwright.config.ts'],
+    languageOptions: {
+      globals: { ...globals.node },
+    },
+  },
   prettier,
 ];
