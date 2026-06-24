@@ -35,6 +35,8 @@ interface Basics {
   fin?: string;
   total?: string;
   efectiva?: string;
+  /** B27: tipos de día a marcar (ej. ['Laborable']). Requerido para que el alta no quede bloqueada. */
+  dias?: string[];
 }
 
 /**
@@ -50,6 +52,11 @@ async function fillBasics(dialog: Locator, b: Basics): Promise<void> {
   if (b.fin !== undefined) await times.nth(1).fill(b.fin);
   if (b.total !== undefined) await dialog.getByPlaceholder('480').fill(b.total);
   if (b.efectiva !== undefined) await dialog.getByPlaceholder('450').fill(b.efectiva);
+  if (b.dias !== undefined) {
+    for (const dia of b.dias) {
+      await dialog.getByRole('checkbox', { name: dia }).click();
+    }
+  }
 }
 
 const btnCrear = (d: Locator) =>
@@ -168,7 +175,9 @@ test.describe('Tipos de turno · flujos del jefe', () => {
     ).toBeHidden();
   });
 
-  test('alta simple: crear T1', async ({ page }) => {
+  test('alta simple: crear T1 + tiposDiaAplicables persisten', async ({
+    page,
+  }) => {
     const dialog = await openCrear(page);
     await fillBasics(dialog, {
       codigo: 'T1',
@@ -177,12 +186,31 @@ test.describe('Tipos de turno · flujos del jefe', () => {
       fin: '22:00',
       total: '480',
       efectiva: '450',
+      dias: ['Laborable', 'Sábado'], // B27
     });
     await btnCrear(dialog).click();
     await expect(page.getByRole('dialog')).toBeHidden();
     await expect(
       page.getByRole('cell', { name: 'T1', exact: true }),
     ).toBeVisible();
+
+    // B27: reabrir en edición y comprobar que los días marcados persisten.
+    await page
+      .getByRole('row', { name: /T1/ })
+      .getByRole('button', { name: 'Editar' })
+      .click();
+    const editDialog = page.getByRole('dialog');
+    await expect(
+      editDialog.getByRole('checkbox', { name: 'Laborable' }),
+    ).toBeChecked();
+    await expect(
+      editDialog.getByRole('checkbox', { name: 'Sábado' }),
+    ).toBeChecked();
+    await expect(
+      editDialog.getByRole('checkbox', { name: 'Domingo' }),
+    ).not.toBeChecked();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toBeHidden();
   });
 
   test('alta partido: tramos dinámicos (añadir/quitar) + crear', async ({
@@ -196,6 +224,7 @@ test.describe('Tipos de turno · flujos del jefe', () => {
       fin: '19:00',
       total: '480',
       efectiva: '450',
+      dias: ['Laborable'], // B27
     });
 
     await dialog.getByRole('checkbox', { name: /Turno partido/ }).click();
@@ -237,6 +266,7 @@ test.describe('Tipos de turno · flujos del jefe', () => {
       fin: '06:00',
       total: '480',
       efectiva: '450',
+      dias: ['Laborable'], // B27
     });
     await dialog.getByRole('checkbox', { name: 'Turno nocturno' }).click();
     await btnCrear(dialog).click();
@@ -336,6 +366,7 @@ test.describe('Tipos de turno · flujos del jefe', () => {
       fin: '16:00',
       total: '480',
       efectiva: '450',
+      dias: ['Laborable'], // B27
     });
     await btnCrear(dialog).click();
     // mapCallableError mapea functions/already-exists a este texto (D4.10).

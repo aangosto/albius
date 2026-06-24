@@ -202,6 +202,7 @@ for (const t of TIPOS) {
     centroId: CENTRO_ID,
     creadoPor: "seed-tipos-turno-b19",
     creadoEn: FieldValue.serverTimestamp(),
+    tiposDiaAplicables: ["laborable"], // B27: default del seed (un tipo puede sobreescribirlo en ...t)
     ...t,
   });
 }
