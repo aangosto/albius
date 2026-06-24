@@ -2,6 +2,7 @@ import { HttpsError } from "firebase-functions/v2/https";
 import type {
   CategoriaConductor,
   EstadoCentro,
+  EstadoConductor,
   EstadoLinea,
   EstadoTenant,
   EstadoTipoTurno,
@@ -297,6 +298,38 @@ export interface ActualizarTipoTurnoPayload {
   estado?: EstadoTipoTurno;
   color?: string;
   tramosPartido?: TramoPartido[];
+}
+
+/**
+ * Payload de actualizarConductor (B21, cierra TODO[conductor-campos-operativos-en-alta]).
+ * `conductorId` (= id del doc /conductores, `${tenantId}_${numeroEmpleado}`)
+ * siempre obligatorio; el resto opcional, pero el validator exige al menos uno
+ * (assertAtLeastOneField).
+ *
+ * SOLO edita campos que viven EXCLUSIVAMENTE en /conductores: las preferencias
+ * operativas (4 arrays de IDs), maxHorasSemanales, observaciones, puedeSerReserva
+ * y el estado operativo del conductor (EstadoConductor, distinto del estado de
+ * /usuarios). Esto evita drift con /usuarios y respeta D5.5 (la identidad y la
+ * pertenencia no se editan aquí).
+ *
+ * Campos VETADOS (invalid-argument por campo):
+ *   - identidad/pertenencia: id, tenantId, centroId, dni, usuarioId,
+ *     numeroEmpleado, categoria, fechaAntiguedad, fechaIncorporacion, fechaBaja.
+ *   - auditoría inmutable: creadoPor, creadoEn.
+ *   - dual-homed con /usuarios (se editan vía actualizarUsuario, D5.4):
+ *     email, telefono, nombre, apellidos (su edición aquí drift-earía el doc
+ *     /usuarios y el Auth user record).
+ */
+export interface ActualizarConductorPayload {
+  conductorId: string;
+  lineasPreferentes?: string[];
+  lineasSecundarias?: string[];
+  tiposTurnoPermitidos?: string[];
+  tiposTurnoExcluidos?: string[];
+  maxHorasSemanales?: number;
+  observaciones?: string;
+  puedeSerReserva?: boolean;
+  estado?: EstadoConductor;
 }
 
 // ============================================================================
@@ -671,6 +704,12 @@ const ESTADOS_USUARIO_PERMITIDOS = ["activo", "suspendido"] as const;
 const TIPOS_LINEA_PERMITIDOS = ["urbana", "cercanias", "interurbana"] as const;
 const ESTADOS_LINEA_PERMITIDOS = ["activa", "inactiva", "suspendida"] as const;
 const ESTADOS_TIPO_TURNO_PERMITIDOS = ["activo", "obsoleto"] as const;
+const ESTADOS_CONDUCTOR_PERMITIDOS = [
+  "activo",
+  "baja_temporal",
+  "vacaciones",
+  "baja_definitiva",
+] as const;
 
 export function validateCrearJefeTraficoPayload(
   data: unknown,
@@ -1493,6 +1532,130 @@ export function validateActualizarTipoTurnoPayload(
       "Si 'esPartido' pasa a true debes enviar 'tramosPartido' (no vacío).",
     );
   }
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+//  Conductor (B21) — actualizarConductor
+// ---------------------------------------------------------------------------
+
+export function validateActualizarConductorPayload(
+  data: unknown,
+): ActualizarConductorPayload {
+  const payload = assertPayloadObject(data, "actualizarConductor");
+
+  // --- Vetos categorizados (mensaje específico, antes de validar) ---
+
+  // IDENTIDAD / PERTENENCIA: no se editan aquí (D5.5). El conductor pertenece
+  // permanentemente a su tenant+centro; su identidad (dni/numeroEmpleado) y sus
+  // datos contractuales (categoria/fechas) son inmutables por este callable.
+  const VETO_IDENTIDAD: Record<string, string> = {
+    id: "El campo 'id' no es editable.",
+    tenantId:
+      "El tenantId no es editable. Un conductor pertenece permanentemente a su tenant.",
+    centroId:
+      "El centroId no es editable. Un conductor pertenece permanentemente a su centro.",
+    dni: "El DNI no es editable (identidad del conductor).",
+    usuarioId: "El usuarioId no es editable (enlace al doc /usuarios).",
+    numeroEmpleado:
+      "El número de empleado no es editable (forma parte del id del conductor).",
+    categoria: "La categoría no es editable.",
+    fechaAntiguedad: "La fecha de antigüedad no es editable.",
+    fechaIncorporacion: "La fecha de incorporación no es editable.",
+    fechaBaja:
+      "La fecha de baja no se edita directamente; deriva del estado del conductor.",
+    creadoPor: "El campo 'creadoPor' no es editable.",
+    creadoEn: "El campo 'creadoEn' no es editable.",
+  };
+  for (const campo of Object.keys(VETO_IDENTIDAD)) {
+    if (campo in payload) {
+      throw new HttpsError("invalid-argument", VETO_IDENTIDAD[campo]!);
+    }
+  }
+
+  // DUAL-HOMED con /usuarios (D5.4): email/telefono/nombre/apellidos viven
+  // también en el doc /usuarios (y email en el Auth user record). Editarlos
+  // aquí provocaría drift. Se canalizan por actualizarUsuario.
+  for (const campo of ["email", "telefono", "nombre", "apellidos"]) {
+    if (campo in payload) {
+      throw new HttpsError(
+        "invalid-argument",
+        `El campo '${campo}' no se edita con actualizarConductor (vive también en /usuarios). Usa actualizarUsuario.`,
+      );
+    }
+  }
+
+  // conductorId siempre obligatorio (selector del doc /conductores).
+  const conductorId = assertNonEmptyString(
+    payload["conductorId"],
+    "conductorId",
+  );
+
+  // Al menos un campo a actualizar (excluyendo conductorId).
+  const CAMPOS_OPCIONALES_ACTUALIZAR = [
+    "lineasPreferentes",
+    "lineasSecundarias",
+    "tiposTurnoPermitidos",
+    "tiposTurnoExcluidos",
+    "maxHorasSemanales",
+    "observaciones",
+    "puedeSerReserva",
+    "estado",
+  ] as const;
+  assertAtLeastOneField(
+    payload,
+    CAMPOS_OPCIONALES_ACTUALIZAR,
+    "actualizarConductor",
+  );
+
+  // Validación campo a campo (reusa validators de B13).
+  const result: ActualizarConductorPayload = { conductorId };
+  const lineasPreferentes = assertOptionalStringArray(
+    payload["lineasPreferentes"],
+    "lineasPreferentes",
+  );
+  if (lineasPreferentes !== undefined)
+    result.lineasPreferentes = lineasPreferentes;
+  const lineasSecundarias = assertOptionalStringArray(
+    payload["lineasSecundarias"],
+    "lineasSecundarias",
+  );
+  if (lineasSecundarias !== undefined)
+    result.lineasSecundarias = lineasSecundarias;
+  const tiposTurnoPermitidos = assertOptionalStringArray(
+    payload["tiposTurnoPermitidos"],
+    "tiposTurnoPermitidos",
+  );
+  if (tiposTurnoPermitidos !== undefined)
+    result.tiposTurnoPermitidos = tiposTurnoPermitidos;
+  const tiposTurnoExcluidos = assertOptionalStringArray(
+    payload["tiposTurnoExcluidos"],
+    "tiposTurnoExcluidos",
+  );
+  if (tiposTurnoExcluidos !== undefined)
+    result.tiposTurnoExcluidos = tiposTurnoExcluidos;
+  const maxHorasSemanales = assertOptionalPositiveNumber(
+    payload["maxHorasSemanales"],
+    "maxHorasSemanales",
+  );
+  if (maxHorasSemanales !== undefined)
+    result.maxHorasSemanales = maxHorasSemanales;
+  const observaciones = assertOptionalNonEmptyString(
+    payload["observaciones"],
+    "observaciones",
+  );
+  if (observaciones !== undefined) result.observaciones = observaciones;
+  const puedeSerReserva = assertOptionalBoolean(
+    payload["puedeSerReserva"],
+    "puedeSerReserva",
+  );
+  if (puedeSerReserva !== undefined) result.puedeSerReserva = puedeSerReserva;
+  const estado = assertOptionalEnum(
+    payload["estado"],
+    ESTADOS_CONDUCTOR_PERMITIDOS,
+    "estado",
+  );
+  if (estado !== undefined) result.estado = estado;
   return result;
 }
 

@@ -261,6 +261,8 @@ export interface Conductor {
   // --- Auditoría (server-side) ---
   creadoPor?: string; // UID del usuario que ejecutó el callable que creó este documento (D7). Los callables del Bloque 3.2 lo rellenan siempre; podría faltar en datos legados o importados.
   creadoEn?: Timestamp; // FieldValue.serverTimestamp() al crear el documento (D7). Mismas garantías que arriba.
+  actualizadoPor?: string; // D4.1 — UID del invocador de actualizarConductor (B21). Ausente hasta la primera edición.
+  actualizadoEn?: Timestamp; // D4.1 — FieldValue.serverTimestamp() en cada actualizarConductor (B21).
 }
 
 // ============================================================================
