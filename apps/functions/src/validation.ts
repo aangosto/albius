@@ -2287,6 +2287,121 @@ export function validateCuadranteIdPayload(
 }
 
 /**
+ * Valida un objeto de estadísticas del cuadrante (KPIs): objeto plano NO vacío
+ * cuyos valores son TODOS números finitos. Coherente con `EstadisticasCuadrante`
+ * (`[key: string]: number`): no se exigen claves concretas (el optimizador decide
+ * qué KPIs emite), solo que todo valor sea numérico. Las 4 KPIs canónicas
+ * (coberturaServicios, satisfaccionMedia, preferenciasCumplidas/NoCumplidas) son
+ * las esperadas pero NO se imponen aquí (forward-compat).
+ */
+function assertEstadisticas(
+  value: unknown,
+  fieldName: string,
+): Record<string, number> {
+  const obj = assertPayloadObject(value, fieldName);
+  const keys = Object.keys(obj);
+  if (keys.length === 0) {
+    throw new HttpsError(
+      "invalid-argument",
+      `El campo '${fieldName}' no puede estar vacío.`,
+    );
+  }
+  const result: Record<string, number> = {};
+  for (const k of keys) {
+    const v = obj[k];
+    if (typeof v !== "number" || !Number.isFinite(v)) {
+      throw new HttpsError(
+        "invalid-argument",
+        `El campo '${fieldName}.${k}' debe ser un número finito.`,
+      );
+    }
+    result[k] = v;
+  }
+  return result;
+}
+
+/**
+ * Payload de actualizarCuadrante (B28). Superficie editable acotada: `estadisticas`
+ * (KPIs) y/o el bloque `regeneracion` (cuando el optimizador (re)genera). El resto
+ * de campos del Cuadrante (id, tenantId, centroId, año, mes, estado, creadoPor,
+ * creadoEn, publicadoPor, fechaPublicacion, versionActual) NO son editables aquí
+ * — el validator los veta.
+ * `estado` se cambia con publicar/cerrarCuadrante; la publicación con publicarCuadrante.
+ *
+ * `regeneracion.generadoPor` = quién LANZÓ la generación (p.ej. el uid del jefe),
+ * distinto del `actorId` que ejecuta la escritura ('optimizador'). `fechaGeneracion`
+ * NO viaja en el payload: la sella el callable con serverTimestamp (como todos los
+ * timestamps del proyecto).
+ */
+export interface ActualizarCuadrantePayload {
+  cuadranteId: string;
+  estadisticas?: Record<string, number>;
+  regeneracion?: { generadoPor: string; modoGeneracion: ModoGeneracion };
+}
+
+export function validateActualizarCuadrantePayload(
+  data: unknown,
+): ActualizarCuadrantePayload {
+  const payload = assertPayloadObject(data, "actualizarCuadrante");
+
+  // Veto de campos no editables por esta vía (defensa en profundidad).
+  const VETO: Record<string, string> = {
+    id: "El campo 'id' no es editable.",
+    tenantId: "El tenantId no es editable.",
+    centroId: "El centroId no es editable.",
+    año: "El año no es editable.",
+    mes: "El mes no es editable.",
+    estado:
+      "El estado no se cambia con actualizarCuadrante; usa publicarCuadrante/cerrarCuadrante.",
+    fechaPublicacion:
+      "La fechaPublicacion la sella publicarCuadrante, no es editable aquí.",
+    publicadoPor:
+      "El publicadoPor lo sella publicarCuadrante, no es editable aquí.",
+    versionActual: "El campo 'versionActual' no es editable.",
+    creadoPor: "El campo 'creadoPor' no es editable.",
+    creadoEn: "El campo 'creadoEn' no es editable.",
+  };
+  for (const campo of Object.keys(VETO)) {
+    if (campo in payload) {
+      throw new HttpsError("invalid-argument", VETO[campo]!);
+    }
+  }
+
+  const cuadranteId = assertNonEmptyString(payload["cuadranteId"], "cuadranteId");
+  assertAtLeastOneField(
+    payload,
+    ["estadisticas", "regeneracion"] as const,
+    "actualizarCuadrante",
+  );
+
+  const result: ActualizarCuadrantePayload = { cuadranteId };
+
+  if (payload["estadisticas"] !== undefined) {
+    result.estadisticas = assertEstadisticas(
+      payload["estadisticas"],
+      "estadisticas",
+    );
+  }
+
+  if (payload["regeneracion"] !== undefined) {
+    const reg = assertPayloadObject(payload["regeneracion"], "regeneracion");
+    result.regeneracion = {
+      generadoPor: assertNonEmptyString(
+        reg["generadoPor"],
+        "regeneracion.generadoPor",
+      ),
+      modoGeneracion: assertEnum(
+        reg["modoGeneracion"],
+        MODOS_GENERACION_PERMITIDOS,
+        "regeneracion.modoGeneracion",
+      ),
+    };
+  }
+
+  return result;
+}
+
+/**
  * Campos de una asignación, sin el `cuadranteId` (que va aparte en el payload de
  * crearAsignacion, o es común a todo el lote en crearAsignacionesLote). El
  * `tenantId`/`centroId` NO viajan en el payload: el callable los DERIVA del
