@@ -32,6 +32,17 @@ export function resetConductoresB21(): void {
   });
 }
 
+/**
+ * Deja en centro-test 3 conductores conocidos (cond_b22_1/2/3) con config
+ * variada para los tests de listado/edición de B22. Borra+recrea (limpia también
+ * leftovers de los tests de B21). Se llama en beforeEach del spec de B22.
+ */
+export function resetConductoresB22(): void {
+  execFileSync('node', [path.join(SCRIPTS, 'reset-conductores-b22.mjs')], {
+    stdio: 'pipe',
+  });
+}
+
 export interface ConductorOperativo {
   exists: boolean;
   lineasPreferentes: string[];
