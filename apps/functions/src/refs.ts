@@ -499,3 +499,55 @@ export async function assertNoSolapeFrecuenciaExcepcional(
     }
   }
 }
+
+/**
+ * Verifica que el cuadrante existe Y está en estado EDITABLE (`'borrador'`)
+ * antes de crear/editar/eliminar asignaciones bajo él (B26). Las asignaciones
+ * de un cuadrante `'publicado'`/`'cerrado'` NO se tocan por esta vía: una vez
+ * publicado, los cambios pasan por el mercado de intercambios (bloque futuro) o
+ * por una re-apertura explícita; un cuadrante cerrado es inmutable.
+ *
+ * Semántica de códigos (D5.2, paralelo a assertCentroActivo/assertLineaActiva):
+ *   - cuadrante inexistente → 'invalid-argument' (ID inválido).
+ *   - existe pero `estado !== 'borrador'` → 'failed-precondition' (el estado del
+ *     padre bloquea la edición de asignaciones).
+ *
+ * Devuelve los datos del cuadrante que el callable necesita sin una segunda
+ * lectura: `tenantId`/`centroId` (auth anti-cross + coherencia de la asignación)
+ * y `año`/`mes` (validar que la `fecha` de la asignación cae dentro del mes).
+ */
+export async function assertCuadranteEditable(
+  db: Firestore,
+  cuadranteId: string,
+): Promise<{
+  tenantId: string;
+  centroId: string;
+  año: number;
+  mes: number;
+}> {
+  const snap = await db
+    .collection(COLLECTIONS.CUADRANTES)
+    .doc(cuadranteId)
+    .get();
+  if (!snap.exists) {
+    throw new HttpsError(
+      "invalid-argument",
+      `El cuadrante '${cuadranteId}' no existe.`,
+    );
+  }
+  const data = snap.data() ?? {};
+  const estado = data["estado"];
+  if (estado !== "borrador") {
+    throw new HttpsError(
+      "failed-precondition",
+      `El cuadrante '${cuadranteId}' no es editable (estado=${typeof estado === "string" ? estado : "desconocido"}). ` +
+        `Solo se editan asignaciones de un cuadrante en borrador; los cambios sobre un cuadrante publicado pasan por intercambios.`,
+    );
+  }
+  return {
+    tenantId: typeof data["tenantId"] === "string" ? data["tenantId"] : "",
+    centroId: typeof data["centroId"] === "string" ? data["centroId"] : "",
+    año: typeof data["año"] === "number" ? data["año"] : 0,
+    mes: typeof data["mes"] === "number" ? data["mes"] : 0,
+  };
+}

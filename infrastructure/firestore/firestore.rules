@@ -361,6 +361,67 @@ service cloud.firestore {
     }
 
     // ========================================================================
+    //  4.11  CUADRANTES  +  4.13  ASIGNACIONES
+    // ========================================================================
+    //
+    //  El Cuadrante (mensual por centro) es la entidad central del sistema: la
+    //  "mesa" donde el optimizador (B27) y el jefe escriben las asignaciones
+    //  (B26). Entidad OPERATIVA del jefe → mismo patrón que /lineas/tipos_turno
+    //  (escritura de jefe scoped por tenant + veto de inmutables en update), NO
+    //  /centros (super_admin-only). La verdad operativa (centro activo, cuadrante
+    //  en borrador, fecha dentro del mes, anti-cross-centro) la imponen los
+    //  callables (Admin SDK, bypassan reglas); la regla es defensa de cliente.
+    //
+    //  read tenant-scoped: el LISTADO del jefe DEBE filtrar where('tenantId')
+    //  (D6.5: sameTenant en list no puede leer resource.data). El conductor lee
+    //  sus asignaciones (sameTenant cubre el tenant; el filtrado por conductorId
+    //  lo hace la query). versiones_cuadrante + cambios_asignaciones siguen en
+    //  deny-all (se difieren al bloque de Intercambios).
+
+    match /cuadrantes/{id} {
+      allow read: if isSuperAdmin()
+                  || (isAuth() && sameTenant(resource.data.tenantId));
+
+      allow create: if (isSuperAdmin() || isJefeTrafico())
+                    && sameTenant(request.resource.data.tenantId);
+
+      allow update: if (isSuperAdmin() || isJefeTrafico())
+                    && sameTenant(resource.data.tenantId)
+                    && !fieldsChanged([
+                      'id',
+                      'tenantId',
+                      'centroId',
+                      'año',
+                      'mes',
+                      'creadoPor',
+                      'creadoEn'
+                    ]);
+
+      allow delete: if isSuperAdmin();
+    }
+
+    match /asignaciones/{id} {
+      allow read: if isSuperAdmin()
+                  || (isAuth() && sameTenant(resource.data.tenantId));
+
+      allow create: if (isSuperAdmin() || isJefeTrafico())
+                    && sameTenant(request.resource.data.tenantId);
+
+      allow update: if (isSuperAdmin() || isJefeTrafico())
+                    && sameTenant(resource.data.tenantId)
+                    && !fieldsChanged([
+                      'id',
+                      'cuadranteId',
+                      'tenantId',
+                      'centroId',
+                      'creadoPor',
+                      'creadoEn'
+                    ]);
+
+      allow delete: if isSuperAdmin();
+    }
+
+    // ========================================================================
     //  COLECCIONES NO ABIERTAS EN ESTA SESIÓN — DENY-ALL EXPLÍCITO
     // ========================================================================
     //
@@ -373,9 +434,7 @@ service cloud.firestore {
 
     match /paradas/{id}                   { allow read, write: if false; }
     match /servicios/{id}                 { allow read, write: if false; }
-    match /cuadrantes/{id}                { allow read, write: if false; }
     match /versiones_cuadrante/{id}       { allow read, write: if false; }
-    match /asignaciones/{id}              { allow read, write: if false; }
     match /cambios_asignaciones/{id}      { allow read, write: if false; }
     match /preferencias_permanentes/{id}  { allow read, write: if false; }
     match /preferencias_puntuales/{id}    { allow read, write: if false; }

@@ -385,13 +385,20 @@ export interface Cuadrante {
   mes: number; // 1-12
   estado: EstadoCuadrante;
   versionActual: number;
+  // Dominio (NO confundir con la auditoría canónica de abajo): registran la
+  // GENERACIÓN del cuadrante (quién lanzó el optimizador / alta manual y cuándo)
+  // y la PUBLICACIÓN. `generadoPor` ≠ `creadoPor`.
   fechaGeneracion: Timestamp;
   fechaPublicacion?: Timestamp;
-  ultimaModificacion: Timestamp;
   generadoPor: string; // user ID
   publicadoPor?: string; // user ID
   modoGeneracion: ModoGeneracion;
   estadisticas?: EstadisticasCuadrante;
+  // Auditoría canónica D6.4 (B26). `actualizadoEn` sustituye a `ultimaModificacion`.
+  creadoPor?: string;
+  creadoEn?: Timestamp;
+  actualizadoPor?: string;
+  actualizadoEn?: Timestamp;
 }
 
 // ============================================================================
@@ -437,8 +444,12 @@ export interface Asignacion {
   esIntercambiada: boolean;
   intercambioId?: string;
   estado: EstadoAsignacion;
-  fechaCreacion: Timestamp;
-  ultimaModificacion: Timestamp;
+  // Auditoría canónica D6.4 (B26). Migrada: fuera `fechaCreacion` (→ `creadoEn`)
+  // y `ultimaModificacion` (→ `actualizadoEn`).
+  creadoPor?: string;
+  creadoEn?: Timestamp;
+  actualizadoPor?: string;
+  actualizadoEn?: Timestamp;
 }
 
 // ============================================================================

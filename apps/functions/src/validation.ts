@@ -1,14 +1,17 @@
 import { HttpsError } from "firebase-functions/v2/https";
 import type {
   CategoriaConductor,
+  EstadoAsignacion,
   EstadoCentro,
   EstadoConductor,
   EstadoLinea,
   EstadoTenant,
   EstadoTipoTurno,
   EstadoUsuario,
+  ModoGeneracion,
   PlanTenant,
   SentidoLinea,
+  TipoAsignacion,
   TipoDia,
   TipoLinea,
   TramoPartido,
@@ -2112,5 +2115,364 @@ export function validateGuardarConvenioPayload(
   if (computoHoras !== undefined) result.computoHoras = computoHoras;
 
   return result;
+}
+
+// ============================================================================
+//  CUADRANTE + ASIGNACIONES (B26)
+// ============================================================================
+
+const MODOS_GENERACION_PERMITIDOS = [
+  "optimizador_libre",
+  "optimizador_subgrupos",
+  "optimizador_clasico",
+  "manual",
+] as const;
+
+const ESTADOS_ASIGNACION_PERMITIDOS = [
+  "planificada",
+  "en_curso",
+  "completada",
+  "cancelada",
+] as const;
+
+/**
+ * Tipos de asignación que SÍ se materializan como documento (B26, regla de
+ * modelado DECIDIDA). El descanso ordinario NO se materializa: la AUSENCIA de
+ * asignación de un conductor en un día equivale a "día libre". Por eso `'libre'`
+ * NO está en esta lista — no se crean filas `'libre'` (lo rechaza el validator
+ * con un mensaje específico). El optimizador (B27) tampoco emitirá filas libres.
+ * 'libre' permanece en el union `TipoAsignacion` por compat del modelo, pero los
+ * callables crear/actualizar lo vetan.
+ */
+const TIPOS_ASIGNACION_MATERIALIZABLES = [
+  "turno",
+  "reserva_presencial",
+  "reserva_localizable",
+  "vacaciones",
+  "baja",
+] as const;
+
+/**
+ * Valida un `tipoAsignacion` materializable. Rechaza explícitamente `'libre'`
+ * (mensaje específico, no genérico) por la regla de no-materialización del
+ * descanso. El resto delega en `assertEnum`.
+ */
+function assertTipoAsignacionMaterializable(
+  value: unknown,
+  fieldName: string,
+): TipoAsignacion {
+  if (value === "libre") {
+    throw new HttpsError(
+      "invalid-argument",
+      "El descanso ordinario ('libre') no se materializa: la ausencia de asignación equivale a día libre. No crees asignaciones 'libre'.",
+    );
+  }
+  return assertEnum(value, TIPOS_ASIGNACION_MATERIALIZABLES, fieldName);
+}
+
+/**
+ * Verifica que una `fecha` (Date, parseada de ISO) cae dentro del mes natural
+ * del cuadrante (`año`/`mes`). Cross-field con el doc padre; el callable la
+ * invoca tras leer el cuadrante. Comparación en UTC (las fechas ISO sin hora se
+ * parsean como medianoche UTC, coherente con `assertISODate`). Lanza
+ * 'invalid-argument' si la fecha cae fuera del mes.
+ */
+export function assertFechaEnMes(fecha: Date, año: number, mes: number): void {
+  const fAño = fecha.getUTCFullYear();
+  const fMes = fecha.getUTCMonth() + 1;
+  if (fAño !== año || fMes !== mes) {
+    throw new HttpsError(
+      "invalid-argument",
+      `La fecha de la asignación (${fecha.toISOString().slice(0, 10)}) está fuera del mes del cuadrante (${año}-${String(mes).padStart(2, "0")}).`,
+    );
+  }
+}
+
+export interface CrearCuadrantePayload {
+  tenantId: string;
+  centroId: string;
+  año: number;
+  mes: number;
+  modoGeneracion?: ModoGeneracion;
+}
+
+/**
+ * Valida crearCuadrante (B26). `año`/`mes` son enteros (mes 1-12; año en rango de
+ * sanidad). `modoGeneracion` opcional (D4.2: el callable defaultea 'manual' en el
+ * alta manual; el optimizador en B27 pasará 'optimizador_*').
+ */
+export function validateCrearCuadrantePayload(
+  data: unknown,
+): CrearCuadrantePayload {
+  const payload = assertPayloadObject(data, "crearCuadrante");
+  const result: CrearCuadrantePayload = {
+    tenantId: assertNonEmptyString(payload["tenantId"], "tenantId"),
+    centroId: assertNonEmptyString(payload["centroId"], "centroId"),
+    año: assertNumeroLimite(payload["año"], "año", {
+      min: 2020,
+      max: 2100,
+      integer: true,
+    }),
+    mes: assertNumeroLimite(payload["mes"], "mes", {
+      min: 1,
+      max: 12,
+      integer: true,
+    }),
+  };
+  const modoGeneracion = assertOptionalEnum(
+    payload["modoGeneracion"],
+    MODOS_GENERACION_PERMITIDOS,
+    "modoGeneracion",
+  );
+  if (modoGeneracion !== undefined) result.modoGeneracion = modoGeneracion;
+  return result;
+}
+
+/**
+ * Valida un payload que solo contiene `cuadranteId` (transiciones de estado
+ * publicarCuadrante/cerrarCuadrante y eliminarAsignacion usan variantes de esto).
+ */
+export function validateCuadranteIdPayload(
+  data: unknown,
+  contextLabel: string,
+): { cuadranteId: string } {
+  const payload = assertPayloadObject(data, contextLabel);
+  return {
+    cuadranteId: assertNonEmptyString(payload["cuadranteId"], "cuadranteId"),
+  };
+}
+
+/**
+ * Campos de una asignación, sin el `cuadranteId` (que va aparte en el payload de
+ * crearAsignacion, o es común a todo el lote en crearAsignacionesLote). El
+ * `tenantId`/`centroId` NO viajan en el payload: el callable los DERIVA del
+ * cuadrante padre (evita drift). `fecha` como Date (parseada de ISO). Los campos
+ * de intercambio (`esIntercambiada`/`intercambioId`) NO se aceptan aquí: los
+ * gestiona el bloque de Intercambios (futuro); el callable los fija a false.
+ * `tramosServicio` se difiere (sin consumidor en MVP: B23 sacó el puente
+ * frecuencias→servicios del alcance).
+ */
+export interface AsignacionItemPayload {
+  conductorId: string;
+  fecha: Date;
+  tipoAsignacion: TipoAsignacion;
+  tipoTurnoId?: string;
+  horaInicio: string;
+  horaFin: string;
+  estado?: EstadoAsignacion;
+}
+
+/**
+ * Parsea y valida los campos de UNA asignación. `tipoTurnoId` es requerido si
+ * `tipoAsignacion === 'turno'` (un turno apunta a su plantilla de tipo); para
+ * reserva/vacaciones/baja es opcional. `horaInicio`/`horaFin` siempre HH:mm; NO
+ * se exige `horaInicio < horaFin` (un turno puede cruzar medianoche, como en
+ * TipoTurno). La validación de `fecha` dentro del mes se hace en el callable
+ * (necesita año/mes del cuadrante). `estado` opcional (callable defaultea
+ * 'planificada').
+ */
+function parseAsignacionItem(
+  obj: Record<string, unknown>,
+  contextLabel: string,
+): AsignacionItemPayload {
+  const tipoAsignacion = assertTipoAsignacionMaterializable(
+    obj["tipoAsignacion"],
+    `${contextLabel}.tipoAsignacion`,
+  );
+  const result: AsignacionItemPayload = {
+    conductorId: assertNonEmptyString(
+      obj["conductorId"],
+      `${contextLabel}.conductorId`,
+    ),
+    fecha: assertISODate(obj["fecha"], `${contextLabel}.fecha`),
+    tipoAsignacion,
+    horaInicio: assertHoraHHmm(obj["horaInicio"], `${contextLabel}.horaInicio`),
+    horaFin: assertHoraHHmm(obj["horaFin"], `${contextLabel}.horaFin`),
+  };
+  if (tipoAsignacion === "turno") {
+    result.tipoTurnoId = assertNonEmptyString(
+      obj["tipoTurnoId"],
+      `${contextLabel}.tipoTurnoId`,
+    );
+  } else {
+    const tipoTurnoId = assertOptionalNonEmptyString(
+      obj["tipoTurnoId"],
+      `${contextLabel}.tipoTurnoId`,
+    );
+    if (tipoTurnoId !== undefined) result.tipoTurnoId = tipoTurnoId;
+  }
+  const estado = assertOptionalEnum(
+    obj["estado"],
+    ESTADOS_ASIGNACION_PERMITIDOS,
+    `${contextLabel}.estado`,
+  );
+  if (estado !== undefined) result.estado = estado;
+  return result;
+}
+
+export interface CrearAsignacionPayload extends AsignacionItemPayload {
+  cuadranteId: string;
+}
+
+export function validateCrearAsignacionPayload(
+  data: unknown,
+): CrearAsignacionPayload {
+  const payload = assertPayloadObject(data, "crearAsignacion");
+  const cuadranteId = assertNonEmptyString(
+    payload["cuadranteId"],
+    "cuadranteId",
+  );
+  return { cuadranteId, ...parseAsignacionItem(payload, "asignacion") };
+}
+
+export interface CrearAsignacionesLotePayload {
+  cuadranteId: string;
+  asignaciones: AsignacionItemPayload[];
+}
+
+/**
+ * Valida el payload de crearAsignacionesLote (B26). El optimizador (B27) volcará
+ * decenas/cientos de asignaciones de golpe. Cota de tamaño defensiva (LOTE_MAX)
+ * para evitar abusos; el callable las escribe en batches de 500 (límite de
+ * writeBatch). Cada item se valida con `parseAsignacionItem`.
+ */
+const LOTE_MAX = 2000;
+
+export function validateCrearAsignacionesLotePayload(
+  data: unknown,
+): CrearAsignacionesLotePayload {
+  const payload = assertPayloadObject(data, "crearAsignacionesLote");
+  const cuadranteId = assertNonEmptyString(
+    payload["cuadranteId"],
+    "cuadranteId",
+  );
+  const arr = payload["asignaciones"];
+  if (!Array.isArray(arr) || arr.length === 0) {
+    throw new HttpsError(
+      "invalid-argument",
+      "El campo 'asignaciones' debe ser un array no vacío.",
+    );
+  }
+  if (arr.length > LOTE_MAX) {
+    throw new HttpsError(
+      "invalid-argument",
+      `El lote no puede superar ${LOTE_MAX} asignaciones (recibidas ${arr.length}).`,
+    );
+  }
+  const asignaciones = arr.map((item, i) =>
+    parseAsignacionItem(
+      assertPayloadObject(item, `asignaciones[${i}]`),
+      `asignaciones[${i}]`,
+    ),
+  );
+  return { cuadranteId, asignaciones };
+}
+
+export interface ActualizarAsignacionPayload {
+  asignacionId: string;
+  conductorId?: string;
+  fecha?: Date;
+  tipoAsignacion?: TipoAsignacion;
+  tipoTurnoId?: string;
+  horaInicio?: string;
+  horaFin?: string;
+  estado?: EstadoAsignacion;
+}
+
+/**
+ * Valida actualizarAsignacion (B26). `asignacionId` siempre; el resto opcional
+ * (assertAtLeastOneField). Veta inmutables (id, cuadranteId, tenantId, centroId,
+ * creadoPor, creadoEn) y los campos de intercambio (gestionados por el bloque
+ * futuro de Intercambios). NOTA (update parcial): NO se revalida la regla cruzada
+ * "tipoAsignacion='turno' ⇒ tipoTurnoId" contra el doc almacenado (coherente con
+ * la política del módulo de no contrastar contra estado persistido); esa regla
+ * se garantiza en CREATE.
+ */
+export function validateActualizarAsignacionPayload(
+  data: unknown,
+): ActualizarAsignacionPayload {
+  const payload = assertPayloadObject(data, "actualizarAsignacion");
+
+  // Veto de inmutables (defensa en profundidad sobre reglas Firestore).
+  const VETO: Record<string, string> = {
+    id: "El campo 'id' no es editable.",
+    cuadranteId:
+      "El cuadranteId no es editable. Una asignación pertenece permanentemente a su cuadrante.",
+    tenantId: "El tenantId no es editable.",
+    centroId: "El centroId no es editable.",
+    creadoPor: "El campo 'creadoPor' no es editable.",
+    creadoEn: "El campo 'creadoEn' no es editable.",
+  };
+  for (const campo of Object.keys(VETO)) {
+    if (campo in payload) {
+      throw new HttpsError("invalid-argument", VETO[campo]!);
+    }
+  }
+  for (const campo of ["esIntercambiada", "intercambioId"]) {
+    if (campo in payload) {
+      throw new HttpsError(
+        "invalid-argument",
+        `El campo '${campo}' lo gestiona el mercado de intercambios (bloque futuro), no actualizarAsignacion.`,
+      );
+    }
+  }
+
+  const asignacionId = assertNonEmptyString(
+    payload["asignacionId"],
+    "asignacionId",
+  );
+
+  const CAMPOS_OPCIONALES = [
+    "conductorId",
+    "fecha",
+    "tipoAsignacion",
+    "tipoTurnoId",
+    "horaInicio",
+    "horaFin",
+    "estado",
+  ] as const;
+  assertAtLeastOneField(payload, CAMPOS_OPCIONALES, "actualizarAsignacion");
+
+  const result: ActualizarAsignacionPayload = { asignacionId };
+  const conductorId = assertOptionalNonEmptyString(
+    payload["conductorId"],
+    "conductorId",
+  );
+  if (conductorId !== undefined) result.conductorId = conductorId;
+  const fecha = assertOptionalISODate(payload["fecha"], "fecha");
+  if (fecha !== undefined) result.fecha = fecha;
+  if (payload["tipoAsignacion"] !== undefined) {
+    result.tipoAsignacion = assertTipoAsignacionMaterializable(
+      payload["tipoAsignacion"],
+      "tipoAsignacion",
+    );
+  }
+  const tipoTurnoId = assertOptionalNonEmptyString(
+    payload["tipoTurnoId"],
+    "tipoTurnoId",
+  );
+  if (tipoTurnoId !== undefined) result.tipoTurnoId = tipoTurnoId;
+  if (payload["horaInicio"] !== undefined) {
+    result.horaInicio = assertHoraHHmm(payload["horaInicio"], "horaInicio");
+  }
+  if (payload["horaFin"] !== undefined) {
+    result.horaFin = assertHoraHHmm(payload["horaFin"], "horaFin");
+  }
+  const estado = assertOptionalEnum(
+    payload["estado"],
+    ESTADOS_ASIGNACION_PERMITIDOS,
+    "estado",
+  );
+  if (estado !== undefined) result.estado = estado;
+  return result;
+}
+
+export function validateEliminarAsignacionPayload(data: unknown): {
+  asignacionId: string;
+} {
+  const payload = assertPayloadObject(data, "eliminarAsignacion");
+  return {
+    asignacionId: assertNonEmptyString(payload["asignacionId"], "asignacionId"),
+  };
 }
 
