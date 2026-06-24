@@ -49,7 +49,9 @@ export const NAV_BY_ROL: Record<Rol, NavSection[]> = {
       items: [
         { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
         { path: '/cuadrante', label: 'Cuadrante', icon: Calendar },
-        { path: '/conductores', label: 'Conductores', icon: Users },
+        // Conductores NO está en la nav del super_admin (B22): la página es
+        // jefe-céntrica (centro por claims). El super_admin gestiona conductores
+        // desde el flujo de Usuarios (alta) — ver gate D4.13 en ConductoresPage.
       ],
     },
   ],
