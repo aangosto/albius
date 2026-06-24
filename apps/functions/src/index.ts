@@ -43,3 +43,7 @@ export { crearLinea } from "./callables/crearLinea";
 export { actualizarLinea } from "./callables/actualizarLinea";
 export { crearTipoTurno } from "./callables/crearTipoTurno";
 export { actualizarTipoTurno } from "./callables/actualizarTipoTurno";
+export { crearFrecuencia } from "./callables/crearFrecuencia";
+export { actualizarFrecuencia } from "./callables/actualizarFrecuencia";
+export { crearFrecuenciaExcepcional } from "./callables/crearFrecuenciaExcepcional";
+export { actualizarFrecuenciaExcepcional } from "./callables/actualizarFrecuenciaExcepcional";

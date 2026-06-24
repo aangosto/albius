@@ -314,14 +314,18 @@ export interface Frecuencia {
   id: string;
   tenantId: string;
   centroId: string;
-  lineaId: string;
+  lineaId: string; // línea a la que aplica (padre directo)
   tipoDia: TipoDia;
-  horaInicio: string; // "HH:mm"
-  horaFin: string; // "HH:mm"
-  intervaloMinutos: number;
-  sentido: SentidoLinea;
-  fechaInicio?: Timestamp; // null = vigente desde siempre
-  fechaFin?: Timestamp; // null = vigente
+  horaInicio: string; // "HH:mm" — tramo DENTRO del día (no cruza medianoche)
+  horaFin: string; // "HH:mm" — horaInicio < horaFin
+  intervaloMinutos: number; // cada cuántos minutos sale una expedición
+  sentido: SentidoLinea; // 'ida' | 'vuelta' | 'ambos'
+  activa: boolean; // soft-delete D4.3 vía este flag (la estacionalidad vive en Línea.vigencia*, B23)
+  // --- Auditoría canónica (D3.7 + D4.1, D6.4: sin fechaCreacion) ---
+  creadoPor?: string;
+  creadoEn?: Timestamp;
+  actualizadoPor?: string;
+  actualizadoEn?: Timestamp;
 }
 
 // ============================================================================
@@ -333,14 +337,18 @@ export interface FrecuenciaExcepcional {
   tenantId: string;
   centroId: string;
   lineaId: string;
-  fecha: Timestamp;
-  horaInicio: string; // "HH:mm"
+  fecha: Timestamp; // un día concreto (reemplaza a la habitual en esa fecha+tramo+línea)
+  horaInicio: string; // "HH:mm" — tramo dentro del día (no cruza medianoche)
   horaFin: string; // "HH:mm"
   intervaloMinutos: number;
   sentido: SentidoLinea;
+  activa: boolean; // soft-delete D4.3 vía este flag (consistencia con Frecuencia, B23)
   motivo?: string;
-  creadoPor: string; // user ID
-  fechaCreacion: Timestamp;
+  // --- Auditoría canónica (D3.7 + D4.1, D6.4: sin fechaCreacion) ---
+  creadoPor?: string;
+  creadoEn?: Timestamp;
+  actualizadoPor?: string;
+  actualizadoEn?: Timestamp;
 }
 
 // ============================================================================

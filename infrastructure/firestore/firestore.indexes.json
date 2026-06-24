@@ -41,6 +41,24 @@
         { "fieldPath": "centroId", "order": "ASCENDING" },
         { "fieldPath": "codigo", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "frecuencias",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tenantId", "order": "ASCENDING" },
+        { "fieldPath": "centroId", "order": "ASCENDING" },
+        { "fieldPath": "lineaId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "frecuencias_excepcionales",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tenantId", "order": "ASCENDING" },
+        { "fieldPath": "centroId", "order": "ASCENDING" },
+        { "fieldPath": "fecha", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

@@ -8,6 +8,8 @@ import type {
   EstadoTipoTurno,
   EstadoUsuario,
   PlanTenant,
+  SentidoLinea,
+  TipoDia,
   TipoLinea,
   TramoPartido,
 } from "@albius/shared";
@@ -330,6 +332,74 @@ export interface ActualizarConductorPayload {
   observaciones?: string;
   puedeSerReserva?: boolean;
   estado?: EstadoConductor;
+}
+
+/**
+ * Payload de crearFrecuencia (B23). Entidad operativa del jefe que cuelga de una
+ * Línea (lineaId, padre directo). `sentido` 'ida'|'vuelta'|'ambos' (NO 'circular').
+ * `activa` opcional en CREATE (D4.2: el callable defaultea true). Las frecuencias
+ * NO cruzan medianoche: `horaInicio < horaFin` (validación cruzada). Auditoría
+ * canónica D6.4.
+ */
+export interface CrearFrecuenciaPayload {
+  tenantId: string;
+  centroId: string;
+  lineaId: string;
+  tipoDia: TipoDia;
+  horaInicio: string;
+  horaFin: string;
+  intervaloMinutos: number;
+  sentido: SentidoLinea;
+  activa?: boolean;
+}
+
+/**
+ * Payload de actualizarFrecuencia. `frecuenciaId` siempre; el resto opcional
+ * (assertAtLeastOneField). Inmutables vetados: id, tenantId, centroId, lineaId,
+ * creadoPor, creadoEn. La línea es inmutable (una frecuencia pertenece a su línea).
+ */
+export interface ActualizarFrecuenciaPayload {
+  frecuenciaId: string;
+  tipoDia?: TipoDia;
+  horaInicio?: string;
+  horaFin?: string;
+  intervaloMinutos?: number;
+  sentido?: SentidoLinea;
+  activa?: boolean;
+}
+
+/**
+ * Payload de crearFrecuenciaExcepcional (B23). Como Frecuencia pero con `fecha`
+ * concreta (ISO string en wire → Timestamp) en vez de `tipoDia`, + `motivo?`.
+ * `activa` opcional (defaultea true). Misma regla horaInicio < horaFin.
+ */
+export interface CrearFrecuenciaExcepcionalPayload {
+  tenantId: string;
+  centroId: string;
+  lineaId: string;
+  fecha: Date;
+  horaInicio: string;
+  horaFin: string;
+  intervaloMinutos: number;
+  sentido: SentidoLinea;
+  motivo?: string;
+  activa?: boolean;
+}
+
+/**
+ * Payload de actualizarFrecuenciaExcepcional. Inmutables vetados: id, tenantId,
+ * centroId, lineaId, creadoPor, creadoEn (la línea de una excepción es inmutable).
+ * `fecha` SÍ editable (corregir el día del evento).
+ */
+export interface ActualizarFrecuenciaExcepcionalPayload {
+  frecuenciaExcepcionalId: string;
+  fecha?: Date;
+  horaInicio?: string;
+  horaFin?: string;
+  intervaloMinutos?: number;
+  sentido?: SentidoLinea;
+  motivo?: string;
+  activa?: boolean;
 }
 
 // ============================================================================
@@ -710,6 +780,13 @@ const ESTADOS_CONDUCTOR_PERMITIDOS = [
   "vacaciones",
   "baja_definitiva",
 ] as const;
+const TIPOS_DIA_PERMITIDOS = [
+  "laborable",
+  "sabado",
+  "domingo",
+  "festivo",
+] as const;
+const SENTIDOS_PERMITIDOS = ["ida", "vuelta", "ambos"] as const;
 
 export function validateCrearJefeTraficoPayload(
   data: unknown,
@@ -1656,6 +1733,223 @@ export function validateActualizarConductorPayload(
     "estado",
   );
   if (estado !== undefined) result.estado = estado;
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+//  Frecuencia + FrecuenciaExcepcional (B23)
+// ---------------------------------------------------------------------------
+
+/**
+ * Las frecuencias NO cruzan medianoche: un tramo es una franja del MISMO día,
+ * `horaInicio < horaFin` (a diferencia de TipoTurno, donde horaFin < horaInicio
+ * señala cruce de medianoche). Una línea nocturna que opera de madrugada se
+ * modela como una frecuencia con horas de madrugada (p.ej. 00:30–05:00), todas
+ * dentro del mismo día. TODO[frecuencia-cruce-medianoche]: si surge un servicio
+ * real que cruza las 00:00 (p.ej. 23:30–01:00), habrá que partirlo en dos
+ * frecuencias o introducir un flag de cruce como en TipoTurno.
+ */
+export function assertHoraInicioAntesFin(inicio: string, fin: string): void {
+  if (toMinutos(inicio) >= toMinutos(fin)) {
+    throw new HttpsError(
+      "invalid-argument",
+      "El campo 'horaInicio' debe ser anterior a 'horaFin' (las frecuencias no cruzan medianoche).",
+    );
+  }
+}
+
+export function validateCrearFrecuenciaPayload(
+  data: unknown,
+): CrearFrecuenciaPayload {
+  const payload = assertPayloadObject(data, "crearFrecuencia");
+  const horaInicio = assertHoraHHmm(payload["horaInicio"], "horaInicio");
+  const horaFin = assertHoraHHmm(payload["horaFin"], "horaFin");
+  assertHoraInicioAntesFin(horaInicio, horaFin);
+  const result: CrearFrecuenciaPayload = {
+    tenantId: assertNonEmptyString(payload["tenantId"], "tenantId"),
+    centroId: assertNonEmptyString(payload["centroId"], "centroId"),
+    lineaId: assertNonEmptyString(payload["lineaId"], "lineaId"),
+    tipoDia: assertEnum(payload["tipoDia"], TIPOS_DIA_PERMITIDOS, "tipoDia"),
+    horaInicio,
+    horaFin,
+    intervaloMinutos: assertPositiveNumber(
+      payload["intervaloMinutos"],
+      "intervaloMinutos",
+    ),
+    sentido: assertEnum(payload["sentido"], SENTIDOS_PERMITIDOS, "sentido"),
+  };
+  const activa = assertOptionalBoolean(payload["activa"], "activa");
+  if (activa !== undefined) result.activa = activa;
+  return result;
+}
+
+const CAMPOS_INMUTABLES_FRECUENCIA = [
+  "id",
+  "tenantId",
+  "centroId",
+  "lineaId",
+  "creadoPor",
+  "creadoEn",
+] as const;
+
+function vetarInmutablesFrecuencia(
+  payload: Record<string, unknown>,
+  campoLineaMsg: string,
+): void {
+  for (const campo of CAMPOS_INMUTABLES_FRECUENCIA) {
+    if (campo in payload) {
+      const msg =
+        campo === "lineaId"
+          ? campoLineaMsg
+          : campo === "tenantId"
+            ? "El tenantId no es editable."
+            : campo === "centroId"
+              ? "El centroId no es editable."
+              : `El campo '${campo}' no es editable.`;
+      throw new HttpsError("invalid-argument", msg);
+    }
+  }
+}
+
+export function validateActualizarFrecuenciaPayload(
+  data: unknown,
+): ActualizarFrecuenciaPayload {
+  const payload = assertPayloadObject(data, "actualizarFrecuencia");
+  vetarInmutablesFrecuencia(
+    payload,
+    "La línea no es editable. Una frecuencia pertenece permanentemente a su línea.",
+  );
+
+  const frecuenciaId = assertNonEmptyString(
+    payload["frecuenciaId"],
+    "frecuenciaId",
+  );
+
+  const CAMPOS_OPCIONALES = [
+    "tipoDia",
+    "horaInicio",
+    "horaFin",
+    "intervaloMinutos",
+    "sentido",
+    "activa",
+  ] as const;
+  assertAtLeastOneField(payload, CAMPOS_OPCIONALES, "actualizarFrecuencia");
+
+  const result: ActualizarFrecuenciaPayload = { frecuenciaId };
+  const tipoDia = assertOptionalEnum(
+    payload["tipoDia"],
+    TIPOS_DIA_PERMITIDOS,
+    "tipoDia",
+  );
+  if (tipoDia !== undefined) result.tipoDia = tipoDia;
+  if (payload["horaInicio"] !== undefined) {
+    result.horaInicio = assertHoraHHmm(payload["horaInicio"], "horaInicio");
+  }
+  if (payload["horaFin"] !== undefined) {
+    result.horaFin = assertHoraHHmm(payload["horaFin"], "horaFin");
+  }
+  // El orden horaInicio<horaFin se valida en el callable con los valores
+  // EFECTIVOS (payload ?? doc), porque un update parcial puede traer solo uno.
+  const intervaloMinutos = assertOptionalPositiveNumber(
+    payload["intervaloMinutos"],
+    "intervaloMinutos",
+  );
+  if (intervaloMinutos !== undefined)
+    result.intervaloMinutos = intervaloMinutos;
+  const sentido = assertOptionalEnum(
+    payload["sentido"],
+    SENTIDOS_PERMITIDOS,
+    "sentido",
+  );
+  if (sentido !== undefined) result.sentido = sentido;
+  const activa = assertOptionalBoolean(payload["activa"], "activa");
+  if (activa !== undefined) result.activa = activa;
+  return result;
+}
+
+export function validateCrearFrecuenciaExcepcionalPayload(
+  data: unknown,
+): CrearFrecuenciaExcepcionalPayload {
+  const payload = assertPayloadObject(data, "crearFrecuenciaExcepcional");
+  const horaInicio = assertHoraHHmm(payload["horaInicio"], "horaInicio");
+  const horaFin = assertHoraHHmm(payload["horaFin"], "horaFin");
+  assertHoraInicioAntesFin(horaInicio, horaFin);
+  const result: CrearFrecuenciaExcepcionalPayload = {
+    tenantId: assertNonEmptyString(payload["tenantId"], "tenantId"),
+    centroId: assertNonEmptyString(payload["centroId"], "centroId"),
+    lineaId: assertNonEmptyString(payload["lineaId"], "lineaId"),
+    fecha: assertISODate(payload["fecha"], "fecha"),
+    horaInicio,
+    horaFin,
+    intervaloMinutos: assertPositiveNumber(
+      payload["intervaloMinutos"],
+      "intervaloMinutos",
+    ),
+    sentido: assertEnum(payload["sentido"], SENTIDOS_PERMITIDOS, "sentido"),
+  };
+  const motivo = assertOptionalNonEmptyString(payload["motivo"], "motivo");
+  if (motivo !== undefined) result.motivo = motivo;
+  const activa = assertOptionalBoolean(payload["activa"], "activa");
+  if (activa !== undefined) result.activa = activa;
+  return result;
+}
+
+export function validateActualizarFrecuenciaExcepcionalPayload(
+  data: unknown,
+): ActualizarFrecuenciaExcepcionalPayload {
+  const payload = assertPayloadObject(data, "actualizarFrecuenciaExcepcional");
+  vetarInmutablesFrecuencia(
+    payload,
+    "La línea no es editable. Una frecuencia excepcional pertenece permanentemente a su línea.",
+  );
+
+  const frecuenciaExcepcionalId = assertNonEmptyString(
+    payload["frecuenciaExcepcionalId"],
+    "frecuenciaExcepcionalId",
+  );
+
+  const CAMPOS_OPCIONALES = [
+    "fecha",
+    "horaInicio",
+    "horaFin",
+    "intervaloMinutos",
+    "sentido",
+    "motivo",
+    "activa",
+  ] as const;
+  assertAtLeastOneField(
+    payload,
+    CAMPOS_OPCIONALES,
+    "actualizarFrecuenciaExcepcional",
+  );
+
+  const result: ActualizarFrecuenciaExcepcionalPayload = {
+    frecuenciaExcepcionalId,
+  };
+  const fecha = assertOptionalISODate(payload["fecha"], "fecha");
+  if (fecha !== undefined) result.fecha = fecha;
+  if (payload["horaInicio"] !== undefined) {
+    result.horaInicio = assertHoraHHmm(payload["horaInicio"], "horaInicio");
+  }
+  if (payload["horaFin"] !== undefined) {
+    result.horaFin = assertHoraHHmm(payload["horaFin"], "horaFin");
+  }
+  const intervaloMinutos = assertOptionalPositiveNumber(
+    payload["intervaloMinutos"],
+    "intervaloMinutos",
+  );
+  if (intervaloMinutos !== undefined)
+    result.intervaloMinutos = intervaloMinutos;
+  const sentido = assertOptionalEnum(
+    payload["sentido"],
+    SENTIDOS_PERMITIDOS,
+    "sentido",
+  );
+  if (sentido !== undefined) result.sentido = sentido;
+  const motivo = assertOptionalNonEmptyString(payload["motivo"], "motivo");
+  if (motivo !== undefined) result.motivo = motivo;
+  const activa = assertOptionalBoolean(payload["activa"], "activa");
+  if (activa !== undefined) result.activa = activa;
   return result;
 }
 

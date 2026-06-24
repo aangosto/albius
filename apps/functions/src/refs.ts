@@ -334,3 +334,168 @@ export async function assertUsuarioExists(
   }
   return snap.data() as Usuario;
 }
+
+/**
+ * Verifica que la línea existe y está ACTIVA antes de colgar una hija de ella
+ * (B23: Frecuencia / FrecuenciaExcepcional cuelgan de una Línea, su padre
+ * directo). Paralelo a `assertCentroActivo` (D5.1) con la misma semántica de
+ * códigos (D5.2): línea inexistente → 'invalid-argument' (ID inválido); línea
+ * existente pero `estado !== 'activa'` (Línea usa enum-3 'activa'/'inactiva'/
+ * 'suspendida', D6.2) → 'failed-precondition' (el estado del padre bloquea).
+ *
+ * Devuelve los datos mínimos de la línea (tenantId/centroId) para que el
+ * callable verifique coherencia sin una segunda lectura.
+ */
+export async function assertLineaActiva(
+  db: Firestore,
+  lineaId: string,
+): Promise<{ tenantId: string; centroId: string }> {
+  const snap = await db.collection(COLLECTIONS.LINEAS).doc(lineaId).get();
+  if (!snap.exists) {
+    throw new HttpsError(
+      "invalid-argument",
+      `La línea '${lineaId}' no existe.`,
+    );
+  }
+  const data = snap.data();
+  const estado = data?.["estado"];
+  if (estado !== "activa") {
+    throw new HttpsError(
+      "failed-precondition",
+      `La línea '${lineaId}' no está activa (estado=${typeof estado === "string" ? estado : "desconocido"}). ` +
+        `No pueden crearse frecuencias en líneas inactivas o suspendidas.`,
+    );
+  }
+  return {
+    tenantId: typeof data?.["tenantId"] === "string" ? data["tenantId"] : "",
+    centroId: typeof data?.["centroId"] === "string" ? data["centroId"] : "",
+  };
+}
+
+/**
+ * Convierte "HH:mm" a minutos desde medianoche. Local a refs.ts (validation.ts
+ * tiene su propio `toMinutos`); duplicación mínima aceptable para no acoplar
+ * módulos.
+ */
+function hhmmAMinutos(hhmm: string): number {
+  const [h, m] = hhmm.split(":");
+  return Number(h) * 60 + Number(m);
+}
+
+/**
+ * ¿Colisionan dos sentidos? Una frecuencia 'ambos' cubre ida Y vuelta, así que
+ * choca con cualquier otra del mismo tramo; 'ida' solo choca con 'ida'/'ambos';
+ * 'vuelta' solo con 'vuelta'/'ambos'.
+ */
+function sentidosColisionan(a: string, b: string): boolean {
+  return a === "ambos" || b === "ambos" || a === b;
+}
+
+/**
+ * Verifica que NO existe otra frecuencia ACTIVA de la misma `lineaId` + `tipoDia`
+ * cuyo tramo `[horaInicio, horaFin]` solape con el nuevo Y cuyo `sentido` colisione
+ * (B23 — primera validación de no-solapamiento temporal del proyecto).
+ *
+ * Lógica de solape de tramos (medio-abierto: tocar en el extremo NO solapa, dos
+ * tramos adyacentes 06:00–10:00 y 10:00–14:00 conviven): dos intervalos
+ * [aIni,aFin) y [bIni,bFin) solapan sii `aIni < bFin && bIni < aFin`. Comparación
+ * en minutos desde medianoche (las frecuencias no cruzan medianoche, B23).
+ *
+ * Solo se consideran frecuencias `activa===true` (una frecuencia inactiva no
+ * ocupa el tramo). `excludeId` evita que `actualizarFrecuencia` choque consigo
+ * misma. Si solapa → 'failed-precondition' con el tramo conflictivo.
+ *
+ * Query por `lineaId` solo (índice single-field auto) + filtro en memoria del
+ * resto: el nº de frecuencias por línea es pequeño.
+ */
+export async function assertNoSolapeFrecuencia(
+  db: Firestore,
+  params: {
+    lineaId: string;
+    tipoDia: string;
+    sentido: string;
+    horaInicio: string;
+    horaFin: string;
+    excludeId?: string;
+  },
+): Promise<void> {
+  const aIni = hhmmAMinutos(params.horaInicio);
+  const aFin = hhmmAMinutos(params.horaFin);
+  const snap = await db
+    .collection(COLLECTIONS.FRECUENCIAS)
+    .where("lineaId", "==", params.lineaId)
+    .get();
+  for (const doc of snap.docs) {
+    if (params.excludeId !== undefined && doc.id === params.excludeId) continue;
+    const d = doc.data();
+    if (d["activa"] !== true) continue;
+    if (d["tipoDia"] !== params.tipoDia) continue;
+    if (!sentidosColisionan(params.sentido, String(d["sentido"]))) continue;
+    const bIni = hhmmAMinutos(String(d["horaInicio"]));
+    const bFin = hhmmAMinutos(String(d["horaFin"]));
+    if (aIni < bFin && bIni < aFin) {
+      throw new HttpsError(
+        "failed-precondition",
+        `El tramo ${params.horaInicio}–${params.horaFin} (${params.sentido}, ${params.tipoDia}) ` +
+          `solapa con una frecuencia existente ${d["horaInicio"]}–${d["horaFin"]} (${d["sentido"]}) de la misma línea.`,
+      );
+    }
+  }
+}
+
+/** "YYYY-MM-DD" de un Date o Timestamp (con `.toDate()`), para comparar día. */
+function diaISO(value: Date | { toDate: () => Date }): string {
+  const d = value instanceof Date ? value : value.toDate();
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Análogo de `assertNoSolapeFrecuencia` para frecuencias_excepcionales, acotado
+ * a la MISMA `fecha` (en vez de `tipoDia`): dos excepcionales activas de la
+ * misma línea + mismo día cuyos tramos solapen y cuyos sentidos colisionen →
+ * 'failed-precondition'. Misma lógica de solape medio-abierto y de colisión de
+ * sentido. (B23, tu-criterio: damos a las excepcionales la misma garantía de
+ * no-solape que a las regulares.)
+ */
+export async function assertNoSolapeFrecuenciaExcepcional(
+  db: Firestore,
+  params: {
+    lineaId: string;
+    fecha: Date;
+    sentido: string;
+    horaInicio: string;
+    horaFin: string;
+    excludeId?: string;
+  },
+): Promise<void> {
+  const aIni = hhmmAMinutos(params.horaInicio);
+  const aFin = hhmmAMinutos(params.horaFin);
+  const diaNuevo = diaISO(params.fecha);
+  const snap = await db
+    .collection(COLLECTIONS.FRECUENCIAS_EXCEPCIONALES)
+    .where("lineaId", "==", params.lineaId)
+    .get();
+  for (const doc of snap.docs) {
+    if (params.excludeId !== undefined && doc.id === params.excludeId) continue;
+    const d = doc.data();
+    if (d["activa"] !== true) continue;
+    const fechaDoc = d["fecha"];
+    if (
+      !fechaDoc ||
+      typeof fechaDoc.toDate !== "function" ||
+      diaISO(fechaDoc) !== diaNuevo
+    ) {
+      continue;
+    }
+    if (!sentidosColisionan(params.sentido, String(d["sentido"]))) continue;
+    const bIni = hhmmAMinutos(String(d["horaInicio"]));
+    const bFin = hhmmAMinutos(String(d["horaFin"]));
+    if (aIni < bFin && bIni < aFin) {
+      throw new HttpsError(
+        "failed-precondition",
+        `El tramo excepcional ${params.horaInicio}–${params.horaFin} (${params.sentido}, ${diaNuevo}) ` +
+          `solapa con otra frecuencia excepcional ${d["horaInicio"]}–${d["horaFin"]} (${d["sentido"]}) de la misma línea y fecha.`,
+      );
+    }
+  }
+}

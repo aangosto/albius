@@ -271,6 +271,60 @@ service cloud.firestore {
     }
 
     // ========================================================================
+    //  4.7  FRECUENCIAS  +  4.8  FRECUENCIAS_EXCEPCIONALES
+    // ========================================================================
+    //
+    //  Datos DESCRIPTIVOS del servicio (intensidad de paso por línea/tramo),
+    //  operativos del jefe (B23). Mismo patrón que /lineas y /tipos_turno
+    //  (escritura de jefe scoped por tenant), NO /centros (super_admin-only).
+    //  Cuelgan de una Línea (lineaId), por eso `lineaId` es inmutable junto a
+    //  id/tenantId/centroId/creadoPor/creadoEn. read tenant-scoped (el list del
+    //  jefe DEBE filtrar where('tenantId'), D6.5). La verdad operativa (línea
+    //  activa, no-solape) la impone el callable; la regla es defensa de cliente.
+
+    match /frecuencias/{id} {
+      allow read: if isSuperAdmin()
+                  || (isAuth() && sameTenant(resource.data.tenantId));
+
+      allow create: if (isSuperAdmin() || isJefeTrafico())
+                    && sameTenant(request.resource.data.tenantId);
+
+      allow update: if (isSuperAdmin() || isJefeTrafico())
+                    && sameTenant(resource.data.tenantId)
+                    && !fieldsChanged([
+                      'id',
+                      'tenantId',
+                      'centroId',
+                      'lineaId',
+                      'creadoPor',
+                      'creadoEn'
+                    ]);
+
+      allow delete: if isSuperAdmin();
+    }
+
+    match /frecuencias_excepcionales/{id} {
+      allow read: if isSuperAdmin()
+                  || (isAuth() && sameTenant(resource.data.tenantId));
+
+      allow create: if (isSuperAdmin() || isJefeTrafico())
+                    && sameTenant(request.resource.data.tenantId);
+
+      allow update: if (isSuperAdmin() || isJefeTrafico())
+                    && sameTenant(resource.data.tenantId)
+                    && !fieldsChanged([
+                      'id',
+                      'tenantId',
+                      'centroId',
+                      'lineaId',
+                      'creadoPor',
+                      'creadoEn'
+                    ]);
+
+      allow delete: if isSuperAdmin();
+    }
+
+    // ========================================================================
     //  COLECCIONES NO ABIERTAS EN ESTA SESIÓN — DENY-ALL EXPLÍCITO
     // ========================================================================
     //
@@ -282,8 +336,6 @@ service cloud.firestore {
     //  presencia o ausencia de una entrada por colección sea explícita.
 
     match /paradas/{id}                   { allow read, write: if false; }
-    match /frecuencias/{id}               { allow read, write: if false; }
-    match /frecuencias_excepcionales/{id} { allow read, write: if false; }
     match /servicios/{id}                 { allow read, write: if false; }
     match /cuadrantes/{id}                { allow read, write: if false; }
     match /versiones_cuadrante/{id}       { allow read, write: if false; }
