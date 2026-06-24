@@ -1,5 +1,6 @@
 import { HttpsError } from "firebase-functions/v2/https";
 import type {
+  AmbitoFestivo,
   CategoriaConductor,
   EstadoAsignacion,
   EstadoCentro,
@@ -14,6 +15,7 @@ import type {
   TipoAsignacion,
   TipoDia,
   TipoLinea,
+  TipoTraficoFestivo,
   TramoPartido,
 } from "@albius/shared";
 
@@ -278,6 +280,7 @@ export interface CrearTipoTurnoPayload {
   esPartido: boolean;
   esNocturno: boolean;
   estado: EstadoTipoTurno;
+  tiposDiaAplicables: TipoDia[];
   color?: string;
   tramosPartido?: TramoPartido[];
 }
@@ -301,6 +304,7 @@ export interface ActualizarTipoTurnoPayload {
   esPartido?: boolean;
   esNocturno?: boolean;
   estado?: EstadoTipoTurno;
+  tiposDiaAplicables?: TipoDia[];
   color?: string;
   tramosPartido?: TramoPartido[];
 }
@@ -1444,6 +1448,35 @@ function assertTramosPartido(
   });
 }
 
+/**
+ * Valida `tiposDiaAplicables` (B27): array NO vacío de `TipoDia` válidos SIN
+ * duplicados. Insumo de demanda del optimizador (los tipos de día en que el
+ * turno se cubre). Devuelve el array tipado.
+ */
+export function assertTiposDiaArray(
+  value: unknown,
+  fieldName: string,
+): TipoDia[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new HttpsError(
+      "invalid-argument",
+      `El campo '${fieldName}' es requerido y debe ser un array no vacío de tipos de día.`,
+    );
+  }
+  const vistos = new Set<string>();
+  return value.map((item: unknown, index: number) => {
+    const td = assertEnum(item, TIPOS_DIA_PERMITIDOS, `${fieldName}[${index}]`);
+    if (vistos.has(td)) {
+      throw new HttpsError(
+        "invalid-argument",
+        `El campo '${fieldName}' no puede contener duplicados ('${td}').`,
+      );
+    }
+    vistos.add(td);
+    return td;
+  });
+}
+
 export function validateCrearTipoTurnoPayload(
   data: unknown,
 ): CrearTipoTurnoPayload {
@@ -1482,6 +1515,10 @@ export function validateCrearTipoTurnoPayload(
       payload["estado"],
       ESTADOS_TIPO_TURNO_PERMITIDOS,
       "estado",
+    ),
+    tiposDiaAplicables: assertTiposDiaArray(
+      payload["tiposDiaAplicables"],
+      "tiposDiaAplicables",
     ),
   };
   const color = assertOptionalColorHex(payload["color"], "color");
@@ -1553,6 +1590,7 @@ export function validateActualizarTipoTurnoPayload(
     "esPartido",
     "esNocturno",
     "estado",
+    "tiposDiaAplicables",
     "color",
     "tramosPartido",
   ] as const;
@@ -1617,6 +1655,12 @@ export function validateActualizarTipoTurnoPayload(
     "estado",
   );
   if (estado !== undefined) result.estado = estado;
+  if (payload["tiposDiaAplicables"] !== undefined) {
+    result.tiposDiaAplicables = assertTiposDiaArray(
+      payload["tiposDiaAplicables"],
+      "tiposDiaAplicables",
+    );
+  }
   const colorTT = assertOptionalColorHex(payload["color"], "color");
   if (colorTT !== undefined) result.color = colorTT;
 
@@ -2473,6 +2517,143 @@ export function validateEliminarAsignacionPayload(data: unknown): {
   const payload = assertPayloadObject(data, "eliminarAsignacion");
   return {
     asignacionId: assertNonEmptyString(payload["asignacionId"], "asignacionId"),
+  };
+}
+
+// ============================================================================
+//  FESTIVOS (B27) — calendario
+// ============================================================================
+
+const AMBITOS_FESTIVO_PERMITIDOS = [
+  "nacional",
+  "autonomico",
+  "provincial",
+  "local",
+  "empresa",
+] as const;
+
+const TIPOS_TRAFICO_FESTIVO_PERMITIDOS = [
+  "festivo",
+  "domingo",
+  "laborable",
+] as const;
+
+/**
+ * Payload de crearFestivo (B27). `centroId` OPCIONAL: si está presente, el
+ * festivo es de ese centro (jefe scoped); si se omite, es tenant-wide
+ * (super_admin only — lo decide el callable). `esEditable` opcional (el callable
+ * defaultea true para los festivos creados por el jefe). `fecha` como Date
+ * (parseada de ISO; el callable la pasa a Timestamp).
+ */
+export interface CrearFestivoPayload {
+  tenantId: string;
+  centroId?: string;
+  fecha: Date;
+  nombre: string;
+  ambito: AmbitoFestivo;
+  tipoTraficoAplicable: TipoTraficoFestivo;
+  esEditable?: boolean;
+}
+
+export function validateCrearFestivoPayload(
+  data: unknown,
+): CrearFestivoPayload {
+  const payload = assertPayloadObject(data, "crearFestivo");
+  const result: CrearFestivoPayload = {
+    tenantId: assertNonEmptyString(payload["tenantId"], "tenantId"),
+    fecha: assertISODate(payload["fecha"], "fecha"),
+    nombre: assertNonEmptyString(payload["nombre"], "nombre"),
+    ambito: assertEnum(payload["ambito"], AMBITOS_FESTIVO_PERMITIDOS, "ambito"),
+    tipoTraficoAplicable: assertEnum(
+      payload["tipoTraficoAplicable"],
+      TIPOS_TRAFICO_FESTIVO_PERMITIDOS,
+      "tipoTraficoAplicable",
+    ),
+  };
+  const centroId = assertOptionalNonEmptyString(
+    payload["centroId"],
+    "centroId",
+  );
+  if (centroId !== undefined) result.centroId = centroId;
+  const esEditable = assertOptionalBoolean(payload["esEditable"], "esEditable");
+  if (esEditable !== undefined) result.esEditable = esEditable;
+  return result;
+}
+
+/**
+ * Payload de actualizarFestivo. `festivoId` siempre; el resto opcional
+ * (assertAtLeastOneField). Inmutables vetados: id, tenantId, centroId (el
+ * ámbito/scope de un festivo es fijo — cambiar de centro a tenant-wide o
+ * viceversa sería re-crear), creadoPor, creadoEn.
+ */
+export interface ActualizarFestivoPayload {
+  festivoId: string;
+  fecha?: Date;
+  nombre?: string;
+  ambito?: AmbitoFestivo;
+  tipoTraficoAplicable?: TipoTraficoFestivo;
+  esEditable?: boolean;
+}
+
+export function validateActualizarFestivoPayload(
+  data: unknown,
+): ActualizarFestivoPayload {
+  const payload = assertPayloadObject(data, "actualizarFestivo");
+
+  const VETO: Record<string, string> = {
+    id: "El campo 'id' no es editable.",
+    tenantId: "El tenantId no es editable.",
+    centroId:
+      "El centroId no es editable (el ámbito de un festivo es fijo; crea uno nuevo si cambia de centro).",
+    creadoPor: "El campo 'creadoPor' no es editable.",
+    creadoEn: "El campo 'creadoEn' no es editable.",
+  };
+  for (const campo of Object.keys(VETO)) {
+    if (campo in payload) {
+      throw new HttpsError("invalid-argument", VETO[campo]!);
+    }
+  }
+
+  const festivoId = assertNonEmptyString(payload["festivoId"], "festivoId");
+
+  const CAMPOS_OPCIONALES = [
+    "fecha",
+    "nombre",
+    "ambito",
+    "tipoTraficoAplicable",
+    "esEditable",
+  ] as const;
+  assertAtLeastOneField(payload, CAMPOS_OPCIONALES, "actualizarFestivo");
+
+  const result: ActualizarFestivoPayload = { festivoId };
+  const fecha = assertOptionalISODate(payload["fecha"], "fecha");
+  if (fecha !== undefined) result.fecha = fecha;
+  const nombre = assertOptionalNonEmptyString(payload["nombre"], "nombre");
+  if (nombre !== undefined) result.nombre = nombre;
+  const ambito = assertOptionalEnum(
+    payload["ambito"],
+    AMBITOS_FESTIVO_PERMITIDOS,
+    "ambito",
+  );
+  if (ambito !== undefined) result.ambito = ambito;
+  const tipoTraficoAplicable = assertOptionalEnum(
+    payload["tipoTraficoAplicable"],
+    TIPOS_TRAFICO_FESTIVO_PERMITIDOS,
+    "tipoTraficoAplicable",
+  );
+  if (tipoTraficoAplicable !== undefined)
+    result.tipoTraficoAplicable = tipoTraficoAplicable;
+  const esEditable = assertOptionalBoolean(payload["esEditable"], "esEditable");
+  if (esEditable !== undefined) result.esEditable = esEditable;
+  return result;
+}
+
+export function validateEliminarFestivoPayload(data: unknown): {
+  festivoId: string;
+} {
+  const payload = assertPayloadObject(data, "eliminarFestivo");
+  return {
+    festivoId: assertNonEmptyString(payload["festivoId"], "festivoId"),
   };
 }
 

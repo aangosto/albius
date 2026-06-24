@@ -8,7 +8,13 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "scripts": {
+    "test": "vitest run"
+  },
   "peerDependencies": {
     "firebase": "^11.0.0"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.4"
   }
 }

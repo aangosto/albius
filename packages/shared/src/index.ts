@@ -8,3 +8,4 @@ export {
   LETRAS_CONTROL,
 } from './validators/cif';
 export type { CIFValidationResult, CIFInvalidReason } from './validators/cif';
+export { resolverTipoDia } from './calendar/resolverTipoDia';

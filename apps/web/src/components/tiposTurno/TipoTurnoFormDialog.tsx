@@ -88,7 +88,10 @@ export default function TipoTurnoFormDialog({
         if (!v && !submitting) onClose();
       }}
     >
-      <DialogContent className="max-w-2xl" showCloseButton={!submitting}>
+      <DialogContent
+        className="max-w-2xl max-h-[90vh] overflow-y-auto"
+        showCloseButton={!submitting}
+      >
         <DialogHeader>
           <DialogTitle>
             {modo === 'alta'

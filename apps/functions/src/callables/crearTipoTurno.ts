@@ -76,6 +76,7 @@ export const crearTipoTurno = onCall(async (request) => {
     esPartido: payload.esPartido,
     esNocturno: payload.esNocturno,
     estado: payload.estado,
+    tiposDiaAplicables: payload.tiposDiaAplicables,
     ...(payload.color !== undefined && { color: payload.color }),
     ...(payload.tramosPartido !== undefined && {
       tramosPartido: payload.tramosPartido,

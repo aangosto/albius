@@ -55,3 +55,6 @@ export { crearAsignacion } from "./callables/crearAsignacion";
 export { actualizarAsignacion } from "./callables/actualizarAsignacion";
 export { eliminarAsignacion } from "./callables/eliminarAsignacion";
 export { crearAsignacionesLote } from "./callables/crearAsignacionesLote";
+export { crearFestivo } from "./callables/crearFestivo";
+export { actualizarFestivo } from "./callables/actualizarFestivo";
+export { eliminarFestivo } from "./callables/eliminarFestivo";

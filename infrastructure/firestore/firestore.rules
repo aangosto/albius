@@ -422,6 +422,41 @@ service cloud.firestore {
     }
 
     // ========================================================================
+    //  4.19  FESTIVOS
+    // ========================================================================
+    //
+    //  Calendario de festivos (B27): insumo del cálculo fecha→tipoDia→demanda.
+    //  Un festivo es de un centro (`centroId` presente) o tenant-wide (`centroId`
+    //  ausente). Entidad operativa → patrón /lineas (jefe-scoped por tenant +
+    //  veto de inmutables). La verdad fina (tenant-wide = super_admin only,
+    //  esEditable protege oficiales) la imponen los callables crear/actualizar/
+    //  eliminarFestivo (Admin SDK); la regla es defensa de cliente.
+    //
+    //  read tenant-scoped: el jefe lista los festivos de su tenant (los de su
+    //  centro + los tenant-wide) filtrando where('tenantId') (D6.5) y discrimina
+    //  el centro en memoria. write super_admin o jefe del mismo tenant.
+
+    match /festivos/{id} {
+      allow read: if isSuperAdmin()
+                  || (isAuth() && sameTenant(resource.data.tenantId));
+
+      allow create: if (isSuperAdmin() || isJefeTrafico())
+                    && sameTenant(request.resource.data.tenantId);
+
+      allow update: if (isSuperAdmin() || isJefeTrafico())
+                    && sameTenant(resource.data.tenantId)
+                    && !fieldsChanged([
+                      'id',
+                      'tenantId',
+                      'centroId',
+                      'creadoPor',
+                      'creadoEn'
+                    ]);
+
+      allow delete: if isSuperAdmin();
+    }
+
+    // ========================================================================
     //  COLECCIONES NO ABIERTAS EN ESTA SESIÓN — DENY-ALL EXPLÍCITO
     // ========================================================================
     //
@@ -440,7 +475,6 @@ service cloud.firestore {
     match /preferencias_puntuales/{id}    { allow read, write: if false; }
     match /solicitudes_intercambio/{id}   { allow read, write: if false; }
     match /incidencias/{id}               { allow read, write: if false; }
-    match /festivos/{id}                  { allow read, write: if false; }
     match /notificaciones/{id}            { allow read, write: if false; }
     match /audit_logs/{id}                { allow read, write: if false; }
   }

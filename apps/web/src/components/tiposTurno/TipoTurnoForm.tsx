@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import type { TipoTurno, TramoPartido } from '@albius/shared';
+import type { TipoDia, TipoTurno, TramoPartido } from '@albius/shared';
 import type {
   ActualizarTipoTurnoInput,
   CrearTipoTurnoInput,
@@ -43,6 +43,20 @@ import type {
 
 const COLOR_HEX_REGEX = /^#[0-9A-Fa-f]{6}$/;
 
+// SSOT de etiquetas de tipo de día (B27). Orden de presentación de los checks.
+const TIPOS_DIA_ORDEN: TipoDia[] = [
+  'laborable',
+  'sabado',
+  'domingo',
+  'festivo',
+];
+export const TIPO_DIA_LABEL: Record<TipoDia, string> = {
+  laborable: 'Laborable',
+  sabado: 'Sábado',
+  domingo: 'Domingo',
+  festivo: 'Festivo',
+};
+
 interface TramoState {
   inicio: string;
   fin: string;
@@ -51,6 +65,13 @@ interface TramoState {
 function tramosEqual(a: TramoPartido[], b: TramoPartido[]): boolean {
   if (a.length !== b.length) return false;
   return a.every((t, i) => t.inicio === b[i]?.inicio && t.fin === b[i]?.fin);
+}
+
+/** Igualdad como CONJUNTO (el orden de selección no cuenta). */
+function sameSet(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sb = new Set(b);
+  return a.every((x) => sb.has(x));
 }
 
 export interface TipoTurnoFormProps {
@@ -95,8 +116,22 @@ export default function TipoTurnoForm({
   );
   const [color, setColor] = useState(tipoInicial?.color ?? '');
   const [colorTouched, setColorTouched] = useState(false);
+  const [tiposDia, setTiposDia] = useState<TipoDia[]>(
+    tipoInicial?.tiposDiaAplicables ?? [],
+  );
+
+  function toggleTipoDia(td: TipoDia, checked: boolean) {
+    setTiposDia((prev) =>
+      checked ? [...prev, td] : prev.filter((x) => x !== td),
+    );
+  }
 
   // --- Validaciones derivadas (espejo del backend) ---
+
+  const tiposDiaError =
+    tiposDia.length === 0
+      ? 'Selecciona al menos un tipo de día en que se cubre el turno.'
+      : null;
 
   const colorTrim = color.trim();
   const colorError =
@@ -152,7 +187,8 @@ export default function TipoTurnoForm({
     !horaInicio ||
     !horaFin ||
     !durTotalValido ||
-    !durEfValido;
+    !durEfValido ||
+    tiposDiaError !== null;
 
   // --- Delta omit-only para edición (DI10.13) ---
 
@@ -170,6 +206,11 @@ export default function TipoTurnoForm({
       delta.duracionEfectivaMinutos = durEfNum;
     }
     if (esNocturno !== tipoInicial.esNocturno) delta.esNocturno = esNocturno;
+    // tiposDiaAplicables: comparación como conjunto (el orden no cuenta). Solo se
+    // envía si el conjunto cambió (B27).
+    if (!sameSet(tiposDia, tipoInicial.tiposDiaAplicables ?? [])) {
+      delta.tiposDiaAplicables = tiposDia;
+    }
     // color: vaciar uno preexistente NO se envía (DI10.13). Solo si hay valor
     // válido y difiere del inicial.
     if (colorValido && colorTrim !== (tipoInicial.color ?? '')) {
@@ -245,6 +286,7 @@ export default function TipoTurnoForm({
         esPartido,
         esNocturno,
         estado: 'activo', // D5.3: alta siempre activo (patrón crearCentro).
+        tiposDiaAplicables: tiposDia,
         ...(colorValido && { color: colorTrim }),
         ...(esPartido && {
           tramosPartido: tramos.map((t) => ({ inicio: t.inicio, fin: t.fin })),
@@ -332,6 +374,34 @@ export default function TipoTurnoForm({
         La duración se declara a mano (puede diferir de fin − inicio: cortes,
         cruce de medianoche, cómputo del convenio).
       </p>
+
+      <div className="space-y-2">
+        <Label>
+          Tipos de día en que se cubre
+          <span className="text-destructive ml-1">*</span>
+        </Label>
+        <div className="flex flex-wrap gap-x-4 gap-y-2">
+          {TIPOS_DIA_ORDEN.map((td) => (
+            <div key={td} className="flex items-center gap-2">
+              <Checkbox
+                id={`tipoDia-${td}`}
+                checked={tiposDia.includes(td)}
+                onCheckedChange={(v) => toggleTipoDia(td, v === true)}
+              />
+              <Label htmlFor={`tipoDia-${td}`} className="cursor-pointer">
+                {TIPO_DIA_LABEL[td]}
+              </Label>
+            </div>
+          ))}
+        </div>
+        {tiposDiaError && (
+          <p className="text-xs text-destructive">{tiposDiaError}</p>
+        )}
+        <p className="text-xs text-muted-foreground">
+          Una plaza de este turno se cubre en cada día del tipo seleccionado
+          (insumo de demanda del cuadrante).
+        </p>
+      </div>
 
       <div className="flex items-center gap-2">
         <Checkbox

@@ -88,6 +88,8 @@ export const actualizarTipoTurno = onCall(async (request) => {
   if (payload.esNocturno !== undefined)
     cambios["esNocturno"] = payload.esNocturno;
   if (payload.estado !== undefined) cambios["estado"] = payload.estado;
+  if (payload.tiposDiaAplicables !== undefined)
+    cambios["tiposDiaAplicables"] = payload.tiposDiaAplicables;
   if (payload.color !== undefined) cambios["color"] = payload.color;
   if (payload.tramosPartido !== undefined)
     cambios["tramosPartido"] = payload.tramosPartido;

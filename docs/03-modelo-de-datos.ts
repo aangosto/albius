@@ -336,6 +336,7 @@ export interface TipoTurno {
   tramosPartido?: TramoPartido[];
   tipoFranja: TipoFranjaTurno;
   estado: EstadoTipoTurno;
+  tiposDiaAplicables: TipoDia[]; // B27: tipos de día en que el turno se cubre (1 plaza/día aplicable; insumo de DEMANDA del optimizador)
   fechaCreacion: Timestamp;
 }
 
@@ -570,9 +571,12 @@ export interface Festivo {
   nombre: string;
   ambito: AmbitoFestivo;
   tipoTraficoAplicable: TipoTraficoFestivo;
-  esEditable: boolean;
+  esEditable: boolean; // false = festivo oficial protegido (no editable/borrable)
+  // --- Auditoría canónica D6.4 (B27: migrada, fuera fechaCreacion) ---
   creadoPor?: string;
-  fechaCreacion: Timestamp;
+  creadoEn?: Timestamp;
+  actualizadoPor?: string;
+  actualizadoEn?: Timestamp;
 }
 
 // ============================================================================

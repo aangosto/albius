@@ -36,6 +36,7 @@ import { httpsCallable } from 'firebase/functions';
 import {
   COLLECTIONS,
   type EstadoTipoTurno,
+  type TipoDia,
   type TipoTurno,
   type TramoPartido,
 } from '@albius/shared';
@@ -61,6 +62,8 @@ export interface CrearTipoTurnoInput {
   esPartido: boolean;
   esNocturno: boolean;
   estado: EstadoTipoTurno;
+  /** B27: tipos de día en que el turno se cubre. Requerido, no vacío, sin duplicados. */
+  tiposDiaAplicables: TipoDia[];
   color?: string;
   /** Requerido y no vacío SOLO si esPartido. Cada tramo { inicio, fin } "HH:mm". */
   tramosPartido?: TramoPartido[];
@@ -88,6 +91,7 @@ export interface ActualizarTipoTurnoInput {
   esPartido?: boolean;
   esNocturno?: boolean;
   estado?: EstadoTipoTurno;
+  tiposDiaAplicables?: TipoDia[];
   color?: string;
   tramosPartido?: TramoPartido[];
 }

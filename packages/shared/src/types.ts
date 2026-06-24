@@ -375,6 +375,7 @@ export interface TipoTurno {
   esNocturno: boolean; // a efectos de convenio; ortogonal a esPartido
   color?: string; // HEX "#FFD700" — opcional, validado si presente
   estado: EstadoTipoTurno; // 'activo' | 'obsoleto' (soft-delete D4.3 vía 'obsoleto')
+  tiposDiaAplicables: TipoDia[]; // B27: tipos de día en que este turno se cubre (1 plaza/día aplicable). Insumo de DEMANDA del optimizador. Requerido en alta, array no vacío sin duplicados.
   creadoPor?: string; // D3.7
   creadoEn?: Timestamp; // D3.7 — reemplaza fechaCreacion
   actualizadoPor?: string; // D4.1
@@ -612,14 +613,17 @@ export interface Incidencia {
 export interface Festivo {
   id: string;
   tenantId: string;
-  centroId?: string; // null = todos los centros del tenant
+  centroId?: string; // ausente = aplica a todos los centros del tenant (tenant-wide)
   fecha: Timestamp;
   nombre: string;
   ambito: AmbitoFestivo;
   tipoTraficoAplicable: TipoTraficoFestivo;
-  esEditable: boolean;
+  esEditable: boolean; // false = festivo oficial protegido (no editable/borrable)
+  // --- Auditoría canónica D6.4 (B27: migrada, fuera fechaCreacion) ---
   creadoPor?: string;
-  fechaCreacion: Timestamp;
+  creadoEn?: Timestamp;
+  actualizadoPor?: string;
+  actualizadoEn?: Timestamp;
 }
 
 // ============================================================================
