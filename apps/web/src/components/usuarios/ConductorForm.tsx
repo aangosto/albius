@@ -1,4 +1,11 @@
-import { useState, type FormEvent, type ReactNode } from 'react';
+import {
+  cloneElement,
+  isValidElement,
+  useId,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from 'react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -7,6 +14,10 @@ import { Label } from '@/components/ui/label';
 import type { Centro, Tenant } from '@albius/shared';
 import type { CrearConductorInput } from '@/lib/services/usuarios';
 import TenantCentroSelect from './TenantCentroSelect';
+import ConductorCamposOperativos, {
+  OPERATIVOS_VACIO,
+  type OperativosValue,
+} from './ConductorCamposOperativos';
 
 /**
  * Form de alta de conductor.
@@ -57,6 +68,16 @@ export default function ConductorForm({
   const [fechaAntiguedad, setFechaAntiguedad] = useState('');
   const [fechaIncorporacion, setFechaIncorporacion] = useState('');
   const [puedeSerReserva, setPuedeSerReserva] = useState(false);
+  const [operativos, setOperativos] =
+    useState<OperativosValue>(OPERATIVOS_VACIO);
+
+  // Reset de las selecciones operativas al cambiar de centro: las líneas/tipos
+  // pertenecen al centro anterior. TenantCentroSelect llama onCentroChange('')
+  // también al cambiar de tenant, así que este handler cubre ambos casos.
+  function handleCentroChange(nuevoCentroId: string) {
+    setCentroId(nuevoCentroId);
+    setOperativos(OPERATIVOS_VACIO);
+  }
 
   const submitDeshabilitado =
     submitting ||
@@ -72,6 +93,12 @@ export default function ConductorForm({
 
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    // Campos operativos (B21): se envían solo si tienen valor. El backend
+    // defaultea los arrays a [] cuando se omiten.
+    const maxHorasRaw = operativos.maxHorasSemanales.trim();
+    const maxHorasNum = Number(maxHorasRaw);
+    const maxHorasValido =
+      maxHorasRaw !== '' && Number.isFinite(maxHorasNum) && maxHorasNum > 0;
     onSubmit({
       numeroEmpleado: numeroEmpleado.trim(),
       nombre: nombre.trim(),
@@ -85,6 +112,22 @@ export default function ConductorForm({
       fechaAntiguedad,
       fechaIncorporacion,
       puedeSerReserva,
+      ...(operativos.lineasPreferentes.length > 0 && {
+        lineasPreferentes: operativos.lineasPreferentes,
+      }),
+      ...(operativos.lineasSecundarias.length > 0 && {
+        lineasSecundarias: operativos.lineasSecundarias,
+      }),
+      ...(operativos.tiposTurnoPermitidos.length > 0 && {
+        tiposTurnoPermitidos: operativos.tiposTurnoPermitidos,
+      }),
+      ...(operativos.tiposTurnoExcluidos.length > 0 && {
+        tiposTurnoExcluidos: operativos.tiposTurnoExcluidos,
+      }),
+      ...(maxHorasValido && { maxHorasSemanales: maxHorasNum }),
+      ...(operativos.observaciones.trim() && {
+        observaciones: operativos.observaciones.trim(),
+      }),
     });
   }
 
@@ -142,7 +185,14 @@ export default function ConductorForm({
         tenantId={tenantId}
         centroId={centroId}
         onTenantChange={setTenantId}
-        onCentroChange={setCentroId}
+        onCentroChange={handleCentroChange}
+      />
+
+      <ConductorCamposOperativos
+        tenantId={tenantId}
+        centroId={centroId}
+        value={operativos}
+        onChange={setOperativos}
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -196,13 +246,20 @@ function Field({
   required?: boolean;
   children: ReactNode;
 }) {
+  // Asocia el Label con el control (htmlFor/id) generando un id estable. Así el
+  // campo es accesible (y localizable por getByLabel en los E2E) sin tener que
+  // poner aria-label en cada Input.
+  const id = useId();
+  const control = isValidElement<{ id?: string }>(children)
+    ? cloneElement(children, { id })
+    : children;
   return (
     <div className="space-y-1">
-      <Label>
+      <Label htmlFor={id}>
         {label}
         {required && <span className="text-destructive ml-1">*</span>}
       </Label>
-      {children}
+      {control}
     </div>
   );
 }

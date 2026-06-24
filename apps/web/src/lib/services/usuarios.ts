@@ -62,11 +62,12 @@ export interface CrearJefeTraficoResult {
  * `${tenantId}_${numeroEmpleado}` (D3.1). El frontend solo envía
  * `numeroEmpleado`.
  *
- * Campos operativos OMITIDOS en B14 (Q4 del PASO 2): `lineasPreferentes`,
- * `lineasSecundarias`, `tiposTurnoPermitidos`, `tiposTurnoExcluidos`,
- * `maxHorasSemanales`, `observaciones`. El backend los defaultea (arrays a
- * `[]`, resto omitidos). Volverán cuando exista CRUD de líneas/tipos-turno
- * para poblar pickers — ver TODO[conductor-campos-operativos-en-alta].
+ * Campos operativos (B21, cierran TODO[conductor-campos-operativos-en-alta]):
+ * `lineasPreferentes`/`lineasSecundarias` (IDs de líneas del centro),
+ * `tiposTurnoPermitidos`/`tiposTurnoExcluidos` (IDs de tipos de turno del
+ * centro), `maxHorasSemanales`, `observaciones`. Opcionales: el backend
+ * defaultea los arrays a `[]` si se omiten. Los pueblan los pickers de
+ * ConductorCamposOperativos con listarLineas/listarTiposTurno del centro.
  */
 export interface CrearConductorInput {
   numeroEmpleado: string;
@@ -81,6 +82,12 @@ export interface CrearConductorInput {
   fechaAntiguedad: string; // ISO YYYY-MM-DD (input type="date"). assertISODate lo acepta.
   fechaIncorporacion: string; // ISO YYYY-MM-DD.
   puedeSerReserva: boolean;
+  lineasPreferentes?: string[];
+  lineasSecundarias?: string[];
+  tiposTurnoPermitidos?: string[];
+  tiposTurnoExcluidos?: string[];
+  maxHorasSemanales?: number;
+  observaciones?: string;
 }
 
 export interface CrearConductorResult {

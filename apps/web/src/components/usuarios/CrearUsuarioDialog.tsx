@@ -152,7 +152,7 @@ export default function CrearUsuarioDialog({
       }}
     >
       <DialogContent
-        className="max-w-2xl"
+        className="max-w-2xl max-h-[90vh] overflow-y-auto"
         showCloseButton={!cierreBloqueado}
       >
         {successResult === null ? (
