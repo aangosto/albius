@@ -12,11 +12,46 @@ import path from 'node:path';
  */
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const RESET_SCRIPT = path.resolve(
-  here,
-  '../../../functions/scripts/reset-tipos-turno-b19.mjs',
-);
+const SCRIPTS = path.resolve(here, '../../../functions/scripts');
 
 export function resetTiposTurno(): void {
-  execFileSync('node', [RESET_SCRIPT], { stdio: 'pipe' });
+  execFileSync('node', [path.join(SCRIPTS, 'reset-tipos-turno-b19.mjs')], {
+    stdio: 'pipe',
+  });
+}
+
+/**
+ * Borra los conductores creados por los tests (tenant-test) + su Auth user +
+ * doc /usuarios. Se llama en beforeEach del spec de B21 para re-ejecutabilidad
+ * (crearConductor crea un Auth user con email único — sin limpiarlo, un segundo
+ * run chocaría con "email ya existe").
+ */
+export function resetConductoresB21(): void {
+  execFileSync('node', [path.join(SCRIPTS, 'reset-conductor-b21.mjs')], {
+    stdio: 'pipe',
+  });
+}
+
+export interface ConductorOperativo {
+  exists: boolean;
+  lineasPreferentes: string[];
+  lineasSecundarias: string[];
+  tiposTurnoPermitidos: string[];
+  tiposTurnoExcluidos: string[];
+  maxHorasSemanales: number | null;
+  observaciones: string | null;
+  estado: string | null;
+}
+
+/**
+ * Lee /conductores/{conductorId} del emulator y devuelve sus campos operativos.
+ * Ejecuta read-conductor-b21.mjs y parsea su stdout JSON.
+ */
+export function readConductorB21(conductorId: string): ConductorOperativo {
+  const out = execFileSync(
+    'node',
+    [path.join(SCRIPTS, 'read-conductor-b21.mjs'), conductorId],
+    { encoding: 'utf8' },
+  );
+  return JSON.parse(out.trim()) as ConductorOperativo;
 }

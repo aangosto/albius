@@ -42,6 +42,16 @@ async function globalSetup(): Promise<void> {
   console.log('[E2E] Sembrando datos de prueba (tipos de turno B19)…');
   execFileSync('node', [seedScript], { stdio: 'inherit' });
 
+  // Seed adicional B21: 3 líneas en centro-test + un centro vacío. Se ejecuta
+  // DESPUÉS del seed B19 (que crea usuarios/tenant/centro/tipos) y NO toca
+  // usuarios. Necesario para los pickers de líneas/tipos del alta de conductor.
+  const seedB21 = path.resolve(
+    here,
+    '../../functions/scripts/seed-conductor-b21.mjs',
+  );
+  console.log('[E2E] Sembrando datos de prueba (conductor B21)…');
+  execFileSync('node', [seedB21], { stdio: 'inherit' });
+
   // 3. Warm-up del Functions emulator: la PRIMERA invocación de un callable
   //    sufre cold-start (carga del runtime/módulo) y puede superar el timeout de
   //    un test. Disparamos POSTs a los endpoints callable (data vacía → fallan
@@ -50,7 +60,12 @@ async function globalSetup(): Promise<void> {
   console.log('[E2E] Calentando el Functions emulator…');
   const base = 'http://127.0.0.1:5001/albius-cbdb1/us-central1';
   await Promise.all(
-    ['crearTipoTurno', 'actualizarTipoTurno'].map((fn) =>
+    [
+      'crearTipoTurno',
+      'actualizarTipoTurno',
+      'crearConductor',
+      'actualizarConductor',
+    ].map((fn) =>
       fetch(`${base}/${fn}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
