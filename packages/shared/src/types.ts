@@ -65,6 +65,14 @@ export type EstadoServicio =
 
 export type EstadoCuadrante = 'borrador' | 'publicado' | 'cerrado';
 
+// Eje de estado de la GENERACIÓN ASÍNCRONA del cuadrante (B29 Fase C), ORTOGONAL
+// al ciclo de vida del documento (EstadoCuadrante). El optimizador corre en
+// background (~5 min, Cloud Tasks): el front reactivo observa la transición
+// 'idle'→'generando'→'completado'/'error' sobre el doc del cuadrante para mostrar
+// progreso + notificación. Ausente en docs legados / cuadrantes nunca generados
+// (se interpreta como 'idle').
+export type EstadoGeneracion = 'idle' | 'generando' | 'completado' | 'error';
+
 export type ModoGeneracion =
   | 'optimizador_libre'
   | 'optimizador_subgrupos'
@@ -147,6 +155,7 @@ export type EstadoNotificacion = 'pendiente' | 'enviada' | 'leida' | 'error';
 
 export type TipoNotificacion =
   | 'cuadrante_publicado'
+  | 'cuadrante_generado' // B29 Fase C: el optimizador terminó la generación async
   | 'cambio_turno'
   | 'intercambio_aprobado'
   | 'solicitud_recibida'
@@ -439,6 +448,13 @@ export interface Cuadrante {
   publicadoPor?: string; // user ID
   modoGeneracion: ModoGeneracion;
   estadisticas?: EstadisticasCuadrante;
+  // Eje de GENERACIÓN ASÍNCRONA (B29 Fase C), ORTOGONAL a `estado`
+  // (borrador/publicado/cerrado). Lo escribe el orquestador del optimizador
+  // (Admin SDK, bypassa reglas): 'generando' al lanzar el motor, 'completado' o
+  // 'error' al terminar. El front reactivo lo observa para mostrar progreso. Un
+  // cuadrante nunca generado / legado no lo trae (≡ 'idle').
+  estadoGeneracion?: EstadoGeneracion;
+  errorGeneracion?: string; // mensaje cuando estadoGeneracion==='error'
   // Auditoría canónica D6.4 (B26). `actualizadoEn` sustituye al antiguo
   // `ultimaModificacion` (mismo significado: última escritura del doc).
   // Opcionales para retrocompat con docs legados.

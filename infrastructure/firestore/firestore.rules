@@ -457,6 +457,23 @@ service cloud.firestore {
     }
 
     // ========================================================================
+    //  4.21  NOTIFICACIONES
+    // ========================================================================
+    //
+    //  Histórico de notificaciones por usuario (B29 Fase C). LECTURA SELF: cada
+    //  usuario lee SOLO las suyas (destinatarioId == su uid). El LISTADO debe
+    //  constreñir la query con where('destinatarioId','==',uid) (patrón D6.5:
+    //  acotar la query al campo de ownership, no relajar la regla). La ESCRITURA
+    //  queda CERRADA al cliente: las notificaciones las crea el backend (Admin
+    //  SDK, bypassa reglas), p.ej. el orquestador del optimizador al terminar la
+    //  generación. No hay rama super_admin: una notificación es personal.
+
+    match /notificaciones/{id} {
+      allow read: if isAuth() && resource.data.destinatarioId == request.auth.uid;
+      allow write: if false;
+    }
+
+    // ========================================================================
     //  COLECCIONES NO ABIERTAS EN ESTA SESIÓN — DENY-ALL EXPLÍCITO
     // ========================================================================
     //
@@ -475,7 +492,6 @@ service cloud.firestore {
     match /preferencias_puntuales/{id}    { allow read, write: if false; }
     match /solicitudes_intercambio/{id}   { allow read, write: if false; }
     match /incidencias/{id}               { allow read, write: if false; }
-    match /notificaciones/{id}            { allow read, write: if false; }
     match /audit_logs/{id}                { allow read, write: if false; }
   }
 }

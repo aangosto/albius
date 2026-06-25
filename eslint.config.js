@@ -15,6 +15,11 @@ export default [
       '**/.firebase/**',
       '**/coverage/**',
       'docs/**',
+      // El optimizador es un servicio Python TOP-LEVEL fuera de los npm
+      // workspaces (otro runtime/deps/despliegue). ESLint no debe tocarlo; en
+      // particular su .venv local trae JS vendorizado de pip que dispara
+      // no-undef. Coherente con CLAUDE.md §5 (services/optimizer fuera del flujo JS).
+      'services/optimizer/**',
     ],
   },
   js.configs.recommended,
