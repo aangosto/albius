@@ -53,7 +53,12 @@ W_NOCT = 8.0
 # usa un time_limit por semana devolviendo el mejor factible. Cada semana es
 # ~178×7 (escala validada por el spike), así que un tope corto basta.
 MIP_REL_GAP = 0.01
-WEEK_TIME_LIMIT = 180.0  # segundos por semana
+# Tope por semana (red de seguridad). Es el DIAL del tiempo de respuesta:
+# tiempo total ≈ nº_semanas × tope (el gap de equidad no cierra, así que cada
+# semana que no prueba óptimo agota su tope; la cobertura se alcanza antes). El
+# orquestador (Fase C) puede pasar `timeLimitSeconds` por petición para ajustarlo
+# (req.timeLimitSeconds ?? WEEK_TIME_LIMIT, ver más abajo).
+WEEK_TIME_LIMIT = 60.0  # segundos por semana
 
 MINUTES_PER_DAY = 1440
 

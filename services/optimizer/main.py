@@ -26,7 +26,11 @@ def health():
 @app.post("/optimizar", response_model=OptimizarResponse)
 def post_optimizar(req: OptimizarRequest) -> OptimizarResponse:
     try:
-        return optimizar(req)
+        # highs_defaults=True: con el fix de `wload`-variable (A.5) HiGHS por
+        # defecto resuelve rápido (las semanas triviales prueban óptimo en seg.); el
+        # tuning A.4 (probing-off + heurística) ya NO hace falta y agotaba el tope
+        # por semana. descomponer=True (descomposición semanal, default).
+        return optimizar(req, highs_defaults=True)
     except ValueError as e:
         # Datos de entrada coherentes pero sin solución / demanda vacía, etc.
         raise HTTPException(status_code=400, detail=str(e))

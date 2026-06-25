@@ -1,0 +1,10 @@
+# Contexto de build mínimo: solo requirements.txt + el código de runtime
+# (optimizer.py, main.py, schemas.py) entran vía COPY explícito en el Dockerfile.
+scratch/
+.venv/
+__pycache__/
+*.pyc
+README.md
+sample_input.json
+Dockerfile
+.dockerignore
