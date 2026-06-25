@@ -127,6 +127,36 @@ class OperatorAbortError extends Error {
 //  Guardas de target (clon de bootstrap-super-admin.mjs)
 // ============================================================================
 
+/**
+ * Ruta del fichero ADC (Application Default Credentials) de gcloud, según
+ * plataforma (B29 C.4.4 — antes estaba hardcodeada a la ruta POSIX y fallaba en
+ * Windows, donde el ADC vive en %APPDATA%\gcloud\). Prioridad:
+ *   1. CLOUDSDK_CONFIG (si el operador movió el config de gcloud).
+ *   2. Windows → %APPDATA%\gcloud\application_default_credentials.json.
+ *   3. POSIX (Linux/Mac) → ~/.config/gcloud/application_default_credentials.json.
+ */
+function adcDefaultPath() {
+  if (process.env.CLOUDSDK_CONFIG) {
+    return join(
+      process.env.CLOUDSDK_CONFIG,
+      "application_default_credentials.json",
+    );
+  }
+  if (process.platform === "win32" && process.env.APPDATA) {
+    return join(
+      process.env.APPDATA,
+      "gcloud",
+      "application_default_credentials.json",
+    );
+  }
+  return join(
+    homedir(),
+    ".config",
+    "gcloud",
+    "application_default_credentials.json",
+  );
+}
+
 function detectProductionCredentials() {
   if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
     const saPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
@@ -146,12 +176,7 @@ function detectProductionCredentials() {
     }
     return { source: "service-account", projectId: sa.project_id };
   }
-  const adcPath = join(
-    homedir(),
-    ".config",
-    "gcloud",
-    "application_default_credentials.json",
-  );
+  const adcPath = adcDefaultPath();
   if (!existsSync(adcPath)) return null;
   let result;
   try {

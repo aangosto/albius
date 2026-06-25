@@ -150,6 +150,41 @@ function validateInputs(args) {
 //  Detección de credenciales para production (capas 3 y 6)
 // ============================================================================
 
+/**
+ * Ruta del fichero ADC (Application Default Credentials) de gcloud, según
+ * plataforma. FIX B29 C.4.4 (ruta ADC multiplataforma): antes estaba hardcodeada
+ * a la ruta POSIX (~/.config/gcloud/...) y fallaba en Windows, donde el ADC vive
+ * en %APPDATA%\gcloud\. Eso impedía que la capa 3b (gcloud ADC) detectara
+ * credenciales en Windows pese a estar bien configuradas. Esto deja la CAPA DE
+ * CREDENCIALES (3b) funcional en Windows; el resto de TODO[bootstrap-verify-
+ * production-layers] (banner/confirmación/project_id contra Firebase real) sigue
+ * pendiente de verificación empírica. Prioridad:
+ *   1. CLOUDSDK_CONFIG (si el operador movió el config de gcloud).
+ *   2. Windows → %APPDATA%\gcloud\application_default_credentials.json.
+ *   3. POSIX (Linux/Mac) → ~/.config/gcloud/application_default_credentials.json.
+ */
+function adcDefaultPath() {
+  if (process.env.CLOUDSDK_CONFIG) {
+    return join(
+      process.env.CLOUDSDK_CONFIG,
+      "application_default_credentials.json",
+    );
+  }
+  if (process.platform === "win32" && process.env.APPDATA) {
+    return join(
+      process.env.APPDATA,
+      "gcloud",
+      "application_default_credentials.json",
+    );
+  }
+  return join(
+    homedir(),
+    ".config",
+    "gcloud",
+    "application_default_credentials.json",
+  );
+}
+
 function detectProductionCredentials() {
   // Layer 3a: GOOGLE_APPLICATION_CREDENTIALS apunta a SA JSON
   if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
@@ -175,13 +210,8 @@ function detectProductionCredentials() {
     return { source: "service-account", projectId: sa.project_id };
   }
 
-  // Layer 3b: gcloud Application Default Credentials
-  const adcPath = join(
-    homedir(),
-    ".config",
-    "gcloud",
-    "application_default_credentials.json",
-  );
+  // Layer 3b: gcloud Application Default Credentials (ruta multiplataforma, B29 C.4.4)
+  const adcPath = adcDefaultPath();
   if (!existsSync(adcPath)) {
     return null;
   }
