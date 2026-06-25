@@ -61,3 +61,6 @@ export { eliminarFestivo } from "./callables/eliminarFestivo";
 export { actualizarCuadrante } from "./callables/actualizarCuadrante";
 export { eliminarAsignacionesCuadrante } from "./callables/eliminarAsignacionesCuadrante";
 export { regenerarAsignacionesCuadrante } from "./callables/regenerarAsignacionesCuadrante";
+// B29 Fase C — orquestador del optimizador (callable corto + worker async).
+export { generarCuadrante } from "./callables/generarCuadrante";
+export { generarCuadranteWorker } from "./tasks/generarCuadranteWorker";
