@@ -1,0 +1,5 @@
+pyomo>=6.7
+highspy>=1.7
+fastapi>=0.110
+uvicorn>=0.29
+pydantic>=2.6

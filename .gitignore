@@ -54,3 +54,10 @@ apps/web/test-results/
 apps/web/playwright-report/
 apps/web/blob-report/
 apps/web/.last-run.json
+/test-results/
+
+# Python — services/optimizer (B29)
+.venv/
+__pycache__/
+*.pyc
+services/optimizer/scratch/

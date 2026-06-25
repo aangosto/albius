@@ -1,0 +1,877 @@
+{
+  "centroId": "centro_demo",
+  "año": 2026,
+  "mes": 9,
+  "dias": [
+    {
+      "fecha": "2026-09-01",
+      "tipoDia": "laborable"
+    },
+    {
+      "fecha": "2026-09-02",
+      "tipoDia": "laborable"
+    },
+    {
+      "fecha": "2026-09-03",
+      "tipoDia": "laborable"
+    },
+    {
+      "fecha": "2026-09-04",
+      "tipoDia": "laborable"
+    },
+    {
+      "fecha": "2026-09-05",
+      "tipoDia": "sabado"
+    },
+    {
+      "fecha": "2026-09-06",
+      "tipoDia": "domingo"
+    },
+    {
+      "fecha": "2026-09-07",
+      "tipoDia": "laborable"
+    },
+    {
+      "fecha": "2026-09-08",
+      "tipoDia": "laborable"
+    },
+    {
+      "fecha": "2026-09-09",
+      "tipoDia": "laborable"
+    },
+    {
+      "fecha": "2026-09-10",
+      "tipoDia": "laborable"
+    },
+    {
+      "fecha": "2026-09-11",
+      "tipoDia": "laborable"
+    },
+    {
+      "fecha": "2026-09-12",
+      "tipoDia": "sabado"
+    },
+    {
+      "fecha": "2026-09-13",
+      "tipoDia": "domingo"
+    },
+    {
+      "fecha": "2026-09-14",
+      "tipoDia": "laborable"
+    },
+    {
+      "fecha": "2026-09-15",
+      "tipoDia": "festivo"
+    },
+    {
+      "fecha": "2026-09-16",
+      "tipoDia": "laborable"
+    },
+    {
+      "fecha": "2026-09-17",
+      "tipoDia": "laborable"
+    },
+    {
+      "fecha": "2026-09-18",
+      "tipoDia": "laborable"
+    },
+    {
+      "fecha": "2026-09-19",
+      "tipoDia": "sabado"
+    },
+    {
+      "fecha": "2026-09-20",
+      "tipoDia": "domingo"
+    },
+    {
+      "fecha": "2026-09-21",
+      "tipoDia": "laborable"
+    },
+    {
+      "fecha": "2026-09-22",
+      "tipoDia": "laborable"
+    },
+    {
+      "fecha": "2026-09-23",
+      "tipoDia": "laborable"
+    },
+    {
+      "fecha": "2026-09-24",
+      "tipoDia": "laborable"
+    },
+    {
+      "fecha": "2026-09-25",
+      "tipoDia": "laborable"
+    },
+    {
+      "fecha": "2026-09-26",
+      "tipoDia": "sabado"
+    },
+    {
+      "fecha": "2026-09-27",
+      "tipoDia": "domingo"
+    },
+    {
+      "fecha": "2026-09-28",
+      "tipoDia": "laborable"
+    },
+    {
+      "fecha": "2026-09-29",
+      "tipoDia": "laborable"
+    },
+    {
+      "fecha": "2026-09-30",
+      "tipoDia": "laborable"
+    }
+  ],
+  "tiposTurno": [
+    {
+      "id": "tt_M1",
+      "codigo": "M1",
+      "horaInicio": "06:00",
+      "horaFin": "14:00",
+      "duracionMinutos": 480,
+      "duracionEfectivaMinutos": 450,
+      "esNocturno": false,
+      "esPartido": false,
+      "tramosPartido": null,
+      "tiposDiaAplicables": [
+        "laborable",
+        "sabado"
+      ]
+    },
+    {
+      "id": "tt_M2",
+      "codigo": "M2",
+      "horaInicio": "07:00",
+      "horaFin": "15:00",
+      "duracionMinutos": 480,
+      "duracionEfectivaMinutos": 450,
+      "esNocturno": false,
+      "esPartido": false,
+      "tramosPartido": null,
+      "tiposDiaAplicables": [
+        "laborable"
+      ]
+    },
+    {
+      "id": "tt_M3",
+      "codigo": "M3",
+      "horaInicio": "08:00",
+      "horaFin": "16:00",
+      "duracionMinutos": 480,
+      "duracionEfectivaMinutos": 450,
+      "esNocturno": false,
+      "esPartido": false,
+      "tramosPartido": null,
+      "tiposDiaAplicables": [
+        "laborable",
+        "sabado",
+        "domingo",
+        "festivo"
+      ]
+    },
+    {
+      "id": "tt_T1",
+      "codigo": "T1",
+      "horaInicio": "14:00",
+      "horaFin": "22:00",
+      "duracionMinutos": 480,
+      "duracionEfectivaMinutos": 450,
+      "esNocturno": false,
+      "esPartido": false,
+      "tramosPartido": null,
+      "tiposDiaAplicables": [
+        "laborable",
+        "sabado"
+      ]
+    },
+    {
+      "id": "tt_T2",
+      "codigo": "T2",
+      "horaInicio": "15:00",
+      "horaFin": "23:00",
+      "duracionMinutos": 480,
+      "duracionEfectivaMinutos": 450,
+      "esNocturno": false,
+      "esPartido": false,
+      "tramosPartido": null,
+      "tiposDiaAplicables": [
+        "laborable"
+      ]
+    },
+    {
+      "id": "tt_T3",
+      "codigo": "T3",
+      "horaInicio": "16:00",
+      "horaFin": "23:59",
+      "duracionMinutos": 479,
+      "duracionEfectivaMinutos": 450,
+      "esNocturno": false,
+      "esPartido": false,
+      "tramosPartido": null,
+      "tiposDiaAplicables": [
+        "laborable",
+        "sabado",
+        "domingo",
+        "festivo"
+      ]
+    },
+    {
+      "id": "tt_N1",
+      "codigo": "N1",
+      "horaInicio": "22:00",
+      "horaFin": "06:00",
+      "duracionMinutos": 480,
+      "duracionEfectivaMinutos": 450,
+      "esNocturno": true,
+      "esPartido": false,
+      "tramosPartido": null,
+      "tiposDiaAplicables": [
+        "laborable",
+        "sabado",
+        "domingo",
+        "festivo"
+      ]
+    },
+    {
+      "id": "tt_N2",
+      "codigo": "N2",
+      "horaInicio": "23:00",
+      "horaFin": "07:00",
+      "duracionMinutos": 480,
+      "duracionEfectivaMinutos": 450,
+      "esNocturno": true,
+      "esPartido": false,
+      "tramosPartido": null,
+      "tiposDiaAplicables": [
+        "laborable"
+      ]
+    },
+    {
+      "id": "tt_P1",
+      "codigo": "P1",
+      "horaInicio": "09:00",
+      "horaFin": "20:00",
+      "duracionMinutos": 420,
+      "duracionEfectivaMinutos": 400,
+      "esNocturno": false,
+      "esPartido": true,
+      "tramosPartido": [
+        {
+          "inicio": "09:00",
+          "fin": "13:00"
+        },
+        {
+          "inicio": "17:00",
+          "fin": "20:00"
+        }
+      ],
+      "tiposDiaAplicables": [
+        "laborable"
+      ]
+    },
+    {
+      "id": "tt_P2",
+      "codigo": "P2",
+      "horaInicio": "10:00",
+      "horaFin": "21:00",
+      "duracionMinutos": 420,
+      "duracionEfectivaMinutos": 400,
+      "esNocturno": false,
+      "esPartido": true,
+      "tramosPartido": [
+        {
+          "inicio": "10:00",
+          "fin": "14:00"
+        },
+        {
+          "inicio": "18:00",
+          "fin": "21:00"
+        }
+      ],
+      "tiposDiaAplicables": [
+        "laborable",
+        "sabado"
+      ]
+    },
+    {
+      "id": "tt_R1",
+      "codigo": "R1",
+      "horaInicio": "12:00",
+      "horaFin": "16:00",
+      "duracionMinutos": 240,
+      "duracionEfectivaMinutos": 240,
+      "esNocturno": false,
+      "esPartido": false,
+      "tramosPartido": null,
+      "tiposDiaAplicables": [
+        "laborable"
+      ]
+    },
+    {
+      "id": "tt_L1",
+      "codigo": "L1",
+      "horaInicio": "10:00",
+      "horaFin": "18:00",
+      "duracionMinutos": 480,
+      "duracionEfectivaMinutos": 450,
+      "esNocturno": false,
+      "esPartido": false,
+      "tramosPartido": null,
+      "tiposDiaAplicables": [
+        "laborable"
+      ]
+    },
+    {
+      "id": "tt_S1",
+      "codigo": "S1",
+      "horaInicio": "08:00",
+      "horaFin": "14:00",
+      "duracionMinutos": 360,
+      "duracionEfectivaMinutos": 340,
+      "esNocturno": false,
+      "esPartido": false,
+      "tramosPartido": null,
+      "tiposDiaAplicables": [
+        "sabado"
+      ]
+    },
+    {
+      "id": "tt_D1",
+      "codigo": "D1",
+      "horaInicio": "09:00",
+      "horaFin": "15:00",
+      "duracionMinutos": 360,
+      "duracionEfectivaMinutos": 340,
+      "esNocturno": false,
+      "esPartido": false,
+      "tramosPartido": null,
+      "tiposDiaAplicables": [
+        "domingo",
+        "festivo"
+      ]
+    }
+  ],
+  "convenio": {
+    "descansoMinimoEntreJornadasHoras": 12,
+    "maxHorasSemanales": 37.5,
+    "computoHoras": "jornada",
+    "maxDiasConsecutivosTrabajados": 6
+  },
+  "conductores": [
+    {
+      "id": "cond_01",
+      "tiposTurnoPermitidos": [
+        "tt_M1",
+        "tt_M2",
+        "tt_M3",
+        "tt_T1",
+        "tt_T2",
+        "tt_T3",
+        "tt_R1",
+        "tt_L1",
+        "tt_S1",
+        "tt_D1",
+        "tt_N1",
+        "tt_N2"
+      ],
+      "tiposTurnoExcluidos": [],
+      "lineasPreferentes": [],
+      "maxHorasSemanales": 20.0
+    },
+    {
+      "id": "cond_02",
+      "tiposTurnoPermitidos": [
+        "tt_M1",
+        "tt_M2",
+        "tt_M3",
+        "tt_T1",
+        "tt_T2",
+        "tt_T3",
+        "tt_R1",
+        "tt_L1",
+        "tt_S1",
+        "tt_D1",
+        "tt_N1",
+        "tt_N2",
+        "tt_P1",
+        "tt_P2"
+      ],
+      "tiposTurnoExcluidos": [],
+      "lineasPreferentes": [],
+      "maxHorasSemanales": null
+    },
+    {
+      "id": "cond_03",
+      "tiposTurnoPermitidos": [
+        "tt_M1",
+        "tt_M2",
+        "tt_M3",
+        "tt_T1",
+        "tt_T2",
+        "tt_T3",
+        "tt_R1",
+        "tt_L1",
+        "tt_S1",
+        "tt_D1",
+        "tt_N1",
+        "tt_N2"
+      ],
+      "tiposTurnoExcluidos": [],
+      "lineasPreferentes": [],
+      "maxHorasSemanales": null
+    },
+    {
+      "id": "cond_04",
+      "tiposTurnoPermitidos": [
+        "tt_M1",
+        "tt_M2",
+        "tt_M3",
+        "tt_T1",
+        "tt_T2",
+        "tt_T3",
+        "tt_R1",
+        "tt_L1",
+        "tt_S1",
+        "tt_D1",
+        "tt_N1",
+        "tt_N2",
+        "tt_P1",
+        "tt_P2"
+      ],
+      "tiposTurnoExcluidos": [],
+      "lineasPreferentes": [],
+      "maxHorasSemanales": null
+    },
+    {
+      "id": "cond_05",
+      "tiposTurnoPermitidos": [
+        "tt_M1",
+        "tt_M2",
+        "tt_M3",
+        "tt_T1",
+        "tt_T2",
+        "tt_T3",
+        "tt_R1",
+        "tt_L1",
+        "tt_S1",
+        "tt_D1",
+        "tt_N1",
+        "tt_N2"
+      ],
+      "tiposTurnoExcluidos": [],
+      "lineasPreferentes": [],
+      "maxHorasSemanales": null
+    },
+    {
+      "id": "cond_06",
+      "tiposTurnoPermitidos": [
+        "tt_M1",
+        "tt_M2",
+        "tt_M3",
+        "tt_T1",
+        "tt_T2",
+        "tt_T3",
+        "tt_R1",
+        "tt_L1",
+        "tt_S1",
+        "tt_D1",
+        "tt_N1",
+        "tt_N2",
+        "tt_P1",
+        "tt_P2"
+      ],
+      "tiposTurnoExcluidos": [],
+      "lineasPreferentes": [],
+      "maxHorasSemanales": null
+    },
+    {
+      "id": "cond_07",
+      "tiposTurnoPermitidos": [
+        "tt_M1",
+        "tt_M2",
+        "tt_M3",
+        "tt_T1",
+        "tt_T2",
+        "tt_T3",
+        "tt_R1",
+        "tt_L1",
+        "tt_S1",
+        "tt_D1"
+      ],
+      "tiposTurnoExcluidos": [],
+      "lineasPreferentes": [],
+      "maxHorasSemanales": null
+    },
+    {
+      "id": "cond_08",
+      "tiposTurnoPermitidos": [
+        "tt_M1",
+        "tt_M2",
+        "tt_M3",
+        "tt_T1",
+        "tt_T2",
+        "tt_T3",
+        "tt_R1",
+        "tt_L1",
+        "tt_S1",
+        "tt_D1",
+        "tt_P1",
+        "tt_P2"
+      ],
+      "tiposTurnoExcluidos": [],
+      "lineasPreferentes": [],
+      "maxHorasSemanales": null
+    },
+    {
+      "id": "cond_09",
+      "tiposTurnoPermitidos": [
+        "tt_M1",
+        "tt_M2",
+        "tt_M3",
+        "tt_T1",
+        "tt_T2",
+        "tt_T3",
+        "tt_R1",
+        "tt_L1",
+        "tt_S1",
+        "tt_D1"
+      ],
+      "tiposTurnoExcluidos": [],
+      "lineasPreferentes": [],
+      "maxHorasSemanales": null
+    },
+    {
+      "id": "cond_10",
+      "tiposTurnoPermitidos": [
+        "tt_M1",
+        "tt_M2",
+        "tt_M3",
+        "tt_T1",
+        "tt_T2",
+        "tt_T3",
+        "tt_R1",
+        "tt_L1",
+        "tt_S1",
+        "tt_D1",
+        "tt_N1",
+        "tt_N2",
+        "tt_P1",
+        "tt_P2"
+      ],
+      "tiposTurnoExcluidos": [],
+      "lineasPreferentes": [],
+      "maxHorasSemanales": null
+    },
+    {
+      "id": "cond_11",
+      "tiposTurnoPermitidos": [
+        "tt_M1",
+        "tt_M2",
+        "tt_M3",
+        "tt_T1",
+        "tt_T2",
+        "tt_T3",
+        "tt_R1",
+        "tt_L1",
+        "tt_S1",
+        "tt_D1",
+        "tt_N1",
+        "tt_N2"
+      ],
+      "tiposTurnoExcluidos": [],
+      "lineasPreferentes": [],
+      "maxHorasSemanales": null
+    },
+    {
+      "id": "cond_12",
+      "tiposTurnoPermitidos": [
+        "tt_M1",
+        "tt_M2",
+        "tt_M3",
+        "tt_T1",
+        "tt_T2",
+        "tt_T3",
+        "tt_R1",
+        "tt_L1",
+        "tt_S1",
+        "tt_D1",
+        "tt_N1",
+        "tt_N2",
+        "tt_P1",
+        "tt_P2"
+      ],
+      "tiposTurnoExcluidos": [],
+      "lineasPreferentes": [],
+      "maxHorasSemanales": null
+    },
+    {
+      "id": "cond_13",
+      "tiposTurnoPermitidos": [
+        "tt_M1",
+        "tt_M2",
+        "tt_M3",
+        "tt_T1",
+        "tt_T2",
+        "tt_T3",
+        "tt_R1",
+        "tt_L1",
+        "tt_S1",
+        "tt_D1",
+        "tt_N1",
+        "tt_N2"
+      ],
+      "tiposTurnoExcluidos": [],
+      "lineasPreferentes": [],
+      "maxHorasSemanales": null
+    },
+    {
+      "id": "cond_14",
+      "tiposTurnoPermitidos": [
+        "tt_M1",
+        "tt_M2",
+        "tt_M3",
+        "tt_T1",
+        "tt_T2",
+        "tt_T3",
+        "tt_R1",
+        "tt_L1",
+        "tt_S1",
+        "tt_D1",
+        "tt_N1",
+        "tt_N2",
+        "tt_P1",
+        "tt_P2"
+      ],
+      "tiposTurnoExcluidos": [],
+      "lineasPreferentes": [],
+      "maxHorasSemanales": null
+    },
+    {
+      "id": "cond_15",
+      "tiposTurnoPermitidos": [
+        "tt_M1",
+        "tt_M2",
+        "tt_M3",
+        "tt_T1",
+        "tt_T2",
+        "tt_T3",
+        "tt_R1",
+        "tt_L1",
+        "tt_S1",
+        "tt_D1",
+        "tt_N1",
+        "tt_N2"
+      ],
+      "tiposTurnoExcluidos": [],
+      "lineasPreferentes": [],
+      "maxHorasSemanales": null
+    },
+    {
+      "id": "cond_16",
+      "tiposTurnoPermitidos": [
+        "tt_M1",
+        "tt_M2",
+        "tt_M3",
+        "tt_T1",
+        "tt_T2",
+        "tt_T3",
+        "tt_R1",
+        "tt_L1",
+        "tt_S1",
+        "tt_D1",
+        "tt_N1",
+        "tt_N2",
+        "tt_P1",
+        "tt_P2"
+      ],
+      "tiposTurnoExcluidos": [],
+      "lineasPreferentes": [],
+      "maxHorasSemanales": null
+    },
+    {
+      "id": "cond_17",
+      "tiposTurnoPermitidos": [
+        "tt_M1",
+        "tt_M2",
+        "tt_M3",
+        "tt_T1",
+        "tt_T2",
+        "tt_T3",
+        "tt_R1",
+        "tt_L1",
+        "tt_S1",
+        "tt_D1"
+      ],
+      "tiposTurnoExcluidos": [],
+      "lineasPreferentes": [],
+      "maxHorasSemanales": null
+    },
+    {
+      "id": "cond_18",
+      "tiposTurnoPermitidos": [
+        "tt_M1",
+        "tt_M2",
+        "tt_M3",
+        "tt_T1",
+        "tt_T2",
+        "tt_T3",
+        "tt_R1",
+        "tt_L1",
+        "tt_S1",
+        "tt_D1",
+        "tt_P1",
+        "tt_P2"
+      ],
+      "tiposTurnoExcluidos": [],
+      "lineasPreferentes": [],
+      "maxHorasSemanales": null
+    },
+    {
+      "id": "cond_19",
+      "tiposTurnoPermitidos": [
+        "tt_M1",
+        "tt_M2",
+        "tt_M3",
+        "tt_T1",
+        "tt_T2",
+        "tt_T3",
+        "tt_R1",
+        "tt_L1",
+        "tt_S1",
+        "tt_D1"
+      ],
+      "tiposTurnoExcluidos": [],
+      "lineasPreferentes": [],
+      "maxHorasSemanales": null
+    },
+    {
+      "id": "cond_20",
+      "tiposTurnoPermitidos": [
+        "tt_M1",
+        "tt_M2",
+        "tt_M3",
+        "tt_T1",
+        "tt_T2",
+        "tt_T3",
+        "tt_R1",
+        "tt_L1",
+        "tt_S1",
+        "tt_D1",
+        "tt_N1",
+        "tt_N2",
+        "tt_P1",
+        "tt_P2"
+      ],
+      "tiposTurnoExcluidos": [],
+      "lineasPreferentes": [],
+      "maxHorasSemanales": null
+    },
+    {
+      "id": "cond_21",
+      "tiposTurnoPermitidos": [
+        "tt_M1",
+        "tt_M2",
+        "tt_M3",
+        "tt_T1",
+        "tt_T2",
+        "tt_T3",
+        "tt_R1",
+        "tt_L1",
+        "tt_S1",
+        "tt_D1",
+        "tt_N1",
+        "tt_N2"
+      ],
+      "tiposTurnoExcluidos": [],
+      "lineasPreferentes": [],
+      "maxHorasSemanales": null
+    },
+    {
+      "id": "cond_22",
+      "tiposTurnoPermitidos": [
+        "tt_M1",
+        "tt_M2",
+        "tt_M3",
+        "tt_T1",
+        "tt_T2",
+        "tt_T3",
+        "tt_R1",
+        "tt_L1",
+        "tt_S1",
+        "tt_D1",
+        "tt_N1",
+        "tt_N2",
+        "tt_P1",
+        "tt_P2"
+      ],
+      "tiposTurnoExcluidos": [],
+      "lineasPreferentes": [],
+      "maxHorasSemanales": null
+    },
+    {
+      "id": "cond_23",
+      "tiposTurnoPermitidos": [
+        "tt_M1",
+        "tt_M2",
+        "tt_M3",
+        "tt_T1",
+        "tt_T2",
+        "tt_T3",
+        "tt_R1",
+        "tt_L1",
+        "tt_S1",
+        "tt_D1",
+        "tt_N1",
+        "tt_N2"
+      ],
+      "tiposTurnoExcluidos": [],
+      "lineasPreferentes": [],
+      "maxHorasSemanales": null
+    },
+    {
+      "id": "cond_24",
+      "tiposTurnoPermitidos": [
+        "tt_M1",
+        "tt_M2",
+        "tt_M3",
+        "tt_T1",
+        "tt_T2",
+        "tt_T3",
+        "tt_R1",
+        "tt_L1",
+        "tt_S1",
+        "tt_D1",
+        "tt_N1",
+        "tt_N2",
+        "tt_P1",
+        "tt_P2"
+      ],
+      "tiposTurnoExcluidos": [],
+      "lineasPreferentes": [],
+      "maxHorasSemanales": null
+    },
+    {
+      "id": "cond_25",
+      "tiposTurnoPermitidos": [
+        "tt_M1",
+        "tt_M2",
+        "tt_M3",
+        "tt_T1",
+        "tt_T2",
+        "tt_T3",
+        "tt_R1",
+        "tt_L1",
+        "tt_S1",
+        "tt_D1",
+        "tt_N1",
+        "tt_N2"
+      ],
+      "tiposTurnoExcluidos": [],
+      "lineasPreferentes": [],
+      "maxHorasSemanales": null
+    }
+  ],
+  "ausencias": []
+}
