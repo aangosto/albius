@@ -1,11 +1,19 @@
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Trash2 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import type { TipoDia, TipoTurno, TramoPartido } from '@albius/shared';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import type { Linea, TipoDia, TipoTurno, TramoPartido } from '@albius/shared';
+import { listarLineas } from '@/lib/services/lineas';
 import type {
   ActualizarTipoTurnoInput,
   CrearTipoTurnoInput,
@@ -29,6 +37,11 @@ import type {
  *   - Horas como inputs type="time" ("HH:mm"); duraciones como type="number".
  *     D6.6: la duración se DECLARA, el form NO la calcula desde las horas.
  *   - esNocturno: checkbox simple, ortogonal a esPartido (ambos pueden coexistir).
+ *   - Línea (B30): Select OPCIONAL poblado con listarLineas del centro. "(Sin
+ *     línea)" deja lineaId undefined (válido). Cada opción muestra código +
+ *     nombre + swatch de color. Funciona con CERO líneas (solo "(Sin línea)").
+ *     En edición, cambiar de línea se envía; des-asignar (volver a "(Sin línea)")
+ *     NO (omit-only, como color — TODO[delete-on-empty-fields]).
  *   - color: opcional con preview + validación HEX cliente (espejo del backend).
  *   - DI10.13 — vaciar color preexistente NO envía cambio (delete-on-empty no
  *     soportado por el backend, TODO[delete-on-empty-fields]).
@@ -42,6 +55,11 @@ import type {
  */
 
 const COLOR_HEX_REGEX = /^#[0-9A-Fa-f]{6}$/;
+
+// Sentinel para la opción "(sin línea)" del Select de línea (B30). Radix Select
+// no admite SelectItem con value="", así que usamos un valor centinela y lo
+// mapeamos a lineaId=undefined. lineaId es OPCIONAL: "(sin línea)" es válido.
+const SIN_LINEA = '__sin_linea__';
 
 // SSOT de etiquetas de tipo de día (B27). Orden de presentación de los checks.
 const TIPOS_DIA_ORDEN: TipoDia[] = [
@@ -120,6 +138,40 @@ export default function TipoTurnoForm({
     tipoInicial?.tiposDiaAplicables ?? [],
   );
 
+  // Línea (B30, OPCIONAL). El estado guarda el id o el centinela SIN_LINEA.
+  const [lineaSel, setLineaSel] = useState<string>(
+    tipoInicial?.lineaId ?? SIN_LINEA,
+  );
+  const [lineas, setLineas] = useState<Linea[]>([]);
+  const [lineasLoading, setLineasLoading] = useState(true);
+  const [lineasError, setLineasError] = useState<string | null>(null);
+
+  // Carga las líneas del centro para poblar el Select. Si el centro no tiene
+  // líneas (caso producción actual), el Select solo ofrece "(sin línea)" y el
+  // form sigue siendo válido — lineaId es opcional.
+  useEffect(() => {
+    let activo = true;
+    setLineasLoading(true);
+    setLineasError(null);
+    listarLineas(tenantId, centroId)
+      .then((ls) => {
+        if (activo) setLineas(ls);
+      })
+      .catch((err) => {
+        console.error('[tipos-turno] listar líneas error:', err);
+        if (activo) setLineasError('No se pudieron cargar las líneas.');
+      })
+      .finally(() => {
+        if (activo) setLineasLoading(false);
+      });
+    return () => {
+      activo = false;
+    };
+  }, [tenantId, centroId]);
+
+  // lineaId efectivo: el centinela "(sin línea)" → undefined (turno sin línea).
+  const lineaId = lineaSel === SIN_LINEA ? undefined : lineaSel;
+
   function toggleTipoDia(td: TipoDia, checked: boolean) {
     setTiposDia((prev) =>
       checked ? [...prev, td] : prev.filter((x) => x !== td),
@@ -197,6 +249,13 @@ export default function TipoTurnoForm({
     const delta: ActualizarTipoTurnoInput = { tipoTurnoId: tipoInicial.id };
     if (codigo.trim() !== tipoInicial.codigo) delta.codigo = codigo.trim();
     if (nombre.trim() !== tipoInicial.nombre) delta.nombre = nombre.trim();
+    // lineaId (B30): solo se envía si hay una línea seleccionada distinta de la
+    // inicial. Igual que `color`, vaciar una línea preexistente (volver a "(sin
+    // línea)") NO se envía: el backend no soporta delete-on-empty
+    // (TODO[delete-on-empty-fields]). Se puede cambiar de línea, no des-asignar.
+    if (lineaId !== undefined && lineaId !== tipoInicial.lineaId) {
+      delta.lineaId = lineaId;
+    }
     if (horaInicio !== tipoInicial.horaInicio) delta.horaInicio = horaInicio;
     if (horaFin !== tipoInicial.horaFin) delta.horaFin = horaFin;
     if (durTotalNum !== tipoInicial.duracionMinutos) {
@@ -287,6 +346,7 @@ export default function TipoTurnoForm({
         esNocturno,
         estado: 'activo', // D5.3: alta siempre activo (patrón crearCentro).
         tiposDiaAplicables: tiposDia,
+        ...(lineaId !== undefined && { lineaId }),
         ...(colorValido && { color: colorTrim }),
         ...(esPartido && {
           tramosPartido: tramos.map((t) => ({ inicio: t.inicio, fin: t.fin })),
@@ -319,6 +379,45 @@ export default function TipoTurnoForm({
           />
         </Field>
       </div>
+
+      <Field label="Línea">
+        <Select
+          value={lineaSel}
+          onValueChange={setLineaSel}
+          disabled={lineasLoading}
+        >
+          <SelectTrigger className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={SIN_LINEA}>(Sin línea)</SelectItem>
+            {lineas.map((l) => (
+              <SelectItem key={l.id} value={l.id}>
+                <span className="flex items-center gap-2">
+                  <span
+                    aria-hidden
+                    className="size-3 shrink-0 rounded-sm border"
+                    style={l.color ? { backgroundColor: l.color } : undefined}
+                  />
+                  {l.codigo} — {l.nombre}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {lineasError && (
+          <p className="text-xs text-destructive">{lineasError}</p>
+        )}
+        {!lineasLoading && !lineasError && lineas.length === 0 && (
+          <p className="text-xs text-muted-foreground">
+            No hay líneas en este centro. Créalas en la sección «Líneas» para
+            poder agrupar y colorear el cuadrante por línea.
+          </p>
+        )}
+        <p className="text-xs text-muted-foreground">
+          Opcional. Agrupa y colorea el turno por línea en el cuadrante.
+        </p>
+      </Field>
 
       <div className="grid grid-cols-2 gap-3">
         <Field label="Hora inicio" required>

@@ -373,6 +373,45 @@ export async function assertLineaActiva(
 }
 
 /**
+ * Verifica que la línea existe Y pertenece al MISMO centro indicado, SIN exigir
+ * que esté activa (B30: lineaId opcional en TipoTurno). Más laxa que
+ * `assertLineaActiva` a propósito:
+ *
+ *   - En `TipoTurno`, `lineaId` es una referencia de AGRUPACIÓN/ETIQUETADO para
+ *     el cuadrante (colorear/agrupar por línea), no una dependencia operativa
+ *     como en `Frecuencia` (donde una frecuencia sobre una línea muerta no tiene
+ *     sentido y por eso allí se usa `assertLineaActiva`). Un tipo de turno
+ *     asociado a una línea estacional SUSPENDIDA sigue siendo significativo.
+ *   - Simetría crear/editar: la misma regla en ambos lados evita la trampa
+ *     "puedo crearlo pero no re-guardarlo porque la línea quedó suspendida".
+ *
+ * Lo que SÍ se garantiza: la línea existe y es del centro del tipo de turno
+ * (anti-cross-centro). Códigos (D5.2): inexistente → 'invalid-argument';
+ * de otro centro → 'invalid-argument' (id legítimo pero no encaja en este centro).
+ */
+export async function assertLineaDelCentro(
+  db: Firestore,
+  lineaId: string,
+  centroId: string,
+): Promise<void> {
+  const snap = await db.collection(COLLECTIONS.LINEAS).doc(lineaId).get();
+  if (!snap.exists) {
+    throw new HttpsError(
+      "invalid-argument",
+      `La línea '${lineaId}' no existe.`,
+    );
+  }
+  const data = snap.data();
+  if (data?.["centroId"] !== centroId) {
+    throw new HttpsError(
+      "invalid-argument",
+      `La línea '${lineaId}' no pertenece a este centro. ` +
+        `Un tipo de turno solo puede referenciar líneas de su propio centro.`,
+    );
+  }
+}
+
+/**
  * Convierte "HH:mm" a minutos desde medianoche. Local a refs.ts (validation.ts
  * tiene su propio `toMinutos`); duplicación mínima aceptable para no acoplar
  * módulos.

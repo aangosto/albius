@@ -6,7 +6,7 @@ import type { TipoTurno } from "@albius/shared";
 import { COLLECTIONS } from "../collections";
 import { assertSuperAdminOrJefeTrafico } from "../auth-guards";
 import { validateActualizarTipoTurnoPayload } from "../validation";
-import { assertCodigoTipoTurnoUnico } from "../refs";
+import { assertCodigoTipoTurnoUnico, assertLineaDelCentro } from "../refs";
 
 /**
  * Callable actualizarTipoTurno (B18). Clon de actualizarLinea.
@@ -69,6 +69,13 @@ export const actualizarTipoTurno = onCall(async (request) => {
     );
   }
 
+  // B30: si se asigna/cambia la línea, verificar existencia + mismo centro
+  // (contra el centro del DOC, que es inmutable). lineaId opcional: si no viene
+  // en el payload, no se toca ni se valida.
+  if (payload.lineaId !== undefined) {
+    await assertLineaDelCentro(db, payload.lineaId, doc.centroId);
+  }
+
   // ==========================================================================
   //  FASE 2 — Construcción del diff
   // ==========================================================================
@@ -76,6 +83,7 @@ export const actualizarTipoTurno = onCall(async (request) => {
 
   if (payload.codigo !== undefined) cambios["codigo"] = payload.codigo;
   if (payload.nombre !== undefined) cambios["nombre"] = payload.nombre;
+  if (payload.lineaId !== undefined) cambios["lineaId"] = payload.lineaId;
   if (payload.horaInicio !== undefined)
     cambios["horaInicio"] = payload.horaInicio;
   if (payload.horaFin !== undefined) cambios["horaFin"] = payload.horaFin;

@@ -375,6 +375,7 @@ export interface TipoTurno {
   centroId: string; // requerido — un tipo de turno cuelga de un centro (D5.1)
   codigo: string; // "M-LARGO" — único por centro (D6.3)
   nombre: string;
+  lineaId?: string; // OPCIONAL (B30): referencia a una Linea del MISMO centro. Para agrupar/colorear el cuadrante por línea. Ausente = turno sin línea (turnos especiales, ausencias). Resuelve TODO[tipoturno-lineaid]. NOTA §10: este campo se añadió al modelo en B30.1.
   horaInicio: string; // "HH:mm"
   horaFin: string; // "HH:mm"; si horaFin < horaInicio, el turno cruza medianoche
   duracionMinutos: number; // duración total declarada (puede diferir de fin-inicio)

@@ -5,7 +5,11 @@ import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { COLLECTIONS } from "../collections";
 import { assertSuperAdminOrJefeTrafico } from "../auth-guards";
 import { validateCrearTipoTurnoPayload } from "../validation";
-import { assertCentroActivo, assertCodigoTipoTurnoUnico } from "../refs";
+import {
+  assertCentroActivo,
+  assertCodigoTipoTurnoUnico,
+  assertLineaDelCentro,
+} from "../refs";
 
 /**
  * Callable crearTipoTurno (B18). Clon de crearLinea: entidad operativa del jefe
@@ -49,6 +53,11 @@ export const crearTipoTurno = onCall(async (request) => {
 
   await assertCentroActivo(db, payload.centroId); // D5.1
   await assertCodigoTipoTurnoUnico(db, payload.centroId, payload.codigo); // D6.3
+  // B30: lineaId es OPCIONAL. Solo si viene, verificar que la línea existe y es
+  // del MISMO centro (sin exigir que esté activa — ver assertLineaDelCentro).
+  if (payload.lineaId !== undefined) {
+    await assertLineaDelCentro(db, payload.lineaId, payload.centroId);
+  }
 
   logger.info("Creando tipo de turno", {
     tenantId: payload.tenantId,
@@ -77,6 +86,7 @@ export const crearTipoTurno = onCall(async (request) => {
     esNocturno: payload.esNocturno,
     estado: payload.estado,
     tiposDiaAplicables: payload.tiposDiaAplicables,
+    ...(payload.lineaId !== undefined && { lineaId: payload.lineaId }),
     ...(payload.color !== undefined && { color: payload.color }),
     ...(payload.tramosPartido !== undefined && {
       tramosPartido: payload.tramosPartido,

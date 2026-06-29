@@ -51,6 +51,8 @@ export interface CrearTipoTurnoInput {
   centroId: string;
   codigo: string;
   nombre: string;
+  /** OPCIONAL (B30): id de una Linea del mismo centro. Ausente = turno sin línea. */
+  lineaId?: string;
   /** "HH:mm" */
   horaInicio: string;
   /** "HH:mm"; si horaFin < horaInicio el turno cruza medianoche. */
@@ -84,6 +86,8 @@ export interface ActualizarTipoTurnoInput {
   tipoTurnoId: string;
   codigo?: string;
   nombre?: string;
+  /** OPCIONAL (B30): id de una Linea del mismo centro. */
+  lineaId?: string;
   horaInicio?: string;
   horaFin?: string;
   duracionMinutos?: number;

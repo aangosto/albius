@@ -273,6 +273,7 @@ export interface CrearTipoTurnoPayload {
   centroId: string;
   codigo: string;
   nombre: string;
+  lineaId?: string; // OPCIONAL (B30): referencia a una Linea del mismo centro.
   horaInicio: string;
   horaFin: string;
   duracionMinutos: number;
@@ -297,6 +298,7 @@ export interface ActualizarTipoTurnoPayload {
   tipoTurnoId: string;
   codigo?: string;
   nombre?: string;
+  lineaId?: string; // OPCIONAL (B30): referencia a una Linea del mismo centro.
   horaInicio?: string;
   horaFin?: string;
   duracionMinutos?: number;
@@ -1523,6 +1525,11 @@ export function validateCrearTipoTurnoPayload(
   };
   const color = assertOptionalColorHex(payload["color"], "color");
   if (color !== undefined) result.color = color;
+  // lineaId OPCIONAL (B30): solo formato (string no vacío) aquí; la existencia y
+  // la coherencia de centro se validan en el callable (assertLineaDelCentro),
+  // que es quien tiene `db`. Ausente/null → undefined → turno sin línea.
+  const lineaId = assertOptionalNonEmptyString(payload["lineaId"], "lineaId");
+  if (lineaId !== undefined) result.lineaId = lineaId;
 
   // Validación cruzada esPartido ↔ tramosPartido.
   if (esPartido) {
@@ -1583,6 +1590,7 @@ export function validateActualizarTipoTurnoPayload(
   const CAMPOS_OPCIONALES_ACTUALIZAR = [
     "codigo",
     "nombre",
+    "lineaId",
     "horaInicio",
     "horaFin",
     "duracionMinutos",
@@ -1606,6 +1614,9 @@ export function validateActualizarTipoTurnoPayload(
   if (codigo !== undefined) result.codigo = codigo;
   const nombre = assertOptionalNonEmptyString(payload["nombre"], "nombre");
   if (nombre !== undefined) result.nombre = nombre;
+  // lineaId OPCIONAL (B30): solo formato aquí; existencia + centro en el callable.
+  const lineaId = assertOptionalNonEmptyString(payload["lineaId"], "lineaId");
+  if (lineaId !== undefined) result.lineaId = lineaId;
 
   let horaInicio: string | undefined;
   if (payload["horaInicio"] !== undefined) {
