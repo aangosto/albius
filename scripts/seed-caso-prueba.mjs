@@ -1,8 +1,9 @@
 // seed-caso-prueba.mjs
 //
 // Siembra el CASO DE PRUEBA del optimizador (B29 Fase C.4.3) en Firestore:
-// tenant + centro + 1 jefe + 38 tipos de turno + 60 conductores + convenio +
-// cuadrante borrador (septiembre 2026). Escritura DIRECTA con Admin SDK (NO
+// tenant + centro + 1 jefe + 5 líneas (con colores, B30) + 38 tipos de turno
+// (cada uno con lineaId → su línea) + 60 conductores + convenio + cuadrante
+// borrador (septiembre 2026). Escritura DIRECTA con Admin SDK (NO
 // callables: el optimizador solo lee tipos_turno/conductores/convenio; crear 60
 // Auth users de conductor sería innecesario). Por eso el script respeta A MANO
 // todos los invariantes del modelo que los callables normalmente validan.
@@ -66,6 +67,22 @@ const COUNTS = {
   4: { M: 3, T: 3 },
   5: { M: 6, T: 6 },
 };
+
+// Colores de las 5 líneas (HEX, paleta categórica). El cuadrante (B30) agrupa y
+// colorea por línea; el lineaId de cada turno apunta a estas líneas.
+const LINEA_COLORS = {
+  1: "#1F77B4", // azul
+  2: "#FF7F0E", // naranja
+  3: "#2CA02C", // verde
+  4: "#9467BD", // morado
+  5: "#D62728", // rojo teja
+};
+
+/** doc-id determinista y legible de una línea (B30). Lo referencia el lineaId
+ *  de cada tipo de turno → coherencia trivial (mismo patrón que doc-id=codigo). */
+function lineaDocId(linea) {
+  return `lin_${linea}`;
+}
 
 const DUR_MINUTOS = 450; // jornada 7h30
 const DUR_EFECTIVA = 420;
@@ -274,6 +291,31 @@ function addMinutes(hhmm, mins) {
   return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
 }
 
+/** Las 5 líneas de TUCARSA (anonimizado). doc-id = lin_{codigo} (B30). */
+function buildLineas(FieldValue) {
+  return [1, 2, 3, 4, 5].map((linea) => {
+    const id = lineaDocId(linea);
+    return {
+      id,
+      doc: {
+        id,
+        tenantId: TENANT_ID,
+        centroId: CENTRO_ID,
+        codigo: String(linea),
+        nombre: `Línea ${linea}`,
+        tipo: "urbana",
+        color: LINEA_COLORS[linea],
+        esNocturna: false,
+        paradasIda: [], // vacío permitido (el modelo/callable defaultea a [])
+        paradasVuelta: [],
+        estado: "activa",
+        creadoPor: ACTOR,
+        creadoEn: FieldValue.serverTimestamp(),
+      },
+    };
+  });
+}
+
 /** Catálogo de turnos: {codigo, linea, franja, k}. doc-id = codigo (coherencia). */
 function buildCatalogo() {
   const turnos = [];
@@ -303,6 +345,7 @@ function buildTipos(catalogo, FieldValue) {
         centroId: CENTRO_ID,
         codigo: t.codigo,
         nombre: `Línea ${t.linea} ${t.franja === "M" ? "Mañana" : "Tarde"} ${t.k}`,
+        lineaId: lineaDocId(t.linea), // B30: enlace estructurado turno→línea
         horaInicio,
         horaFin,
         duracionMinutos: DUR_MINUTOS,
@@ -379,7 +422,20 @@ function buildConductores(catalogo, FieldValue, Timestamp) {
 }
 
 /** ASSERT de coherencia de IDs + estadísticas de cobertura/versatilidad. */
-function checkCoherencia(tipos, conductores) {
+function checkCoherencia(tipos, conductores, lineas) {
+  // B30: cada lineaId de cada tipo de turno DEBE resolver a una línea sembrada
+  // (paralelo al assert conductores↔turnos de abajo). Si algún turno apunta a
+  // una línea inexistente, abortamos antes de escribir nada.
+  const idsLineas = new Set(lineas.map((l) => l.id));
+  for (const t of tipos) {
+    const lid = t.doc.lineaId;
+    if (lid !== undefined && !idsLineas.has(lid)) {
+      throw new Error(
+        `COHERENCIA ROTA: tipo de turno ${t.id} referencia línea '${lid}' que no existe en las líneas sembradas.`,
+      );
+    }
+  }
+
   const idsTipos = new Set(tipos.map((t) => t.id));
   const cobertura = new Map([...idsTipos].map((id) => [id, 0]));
   let minVers = Infinity;
@@ -440,7 +496,7 @@ async function limpiarAmbito(db, auth) {
   }
   // Firestore: docs por colección dentro del centro/tenant de prueba.
   const dels = [];
-  for (const col of ["tipos_turno", "conductores"]) {
+  for (const col of ["tipos_turno", "conductores", "lineas"]) {
     const snap = await db.collection(col).where("centroId", "==", CENTRO_ID).get();
     for (const d of snap.docs) dels.push((b) => b.delete(d.ref));
   }
@@ -456,10 +512,11 @@ async function limpiarAmbito(db, auth) {
 // ============================================================================
 
 async function sembrar(db, auth, FieldValue, Timestamp) {
+  const lineas = buildLineas(FieldValue);
   const catalogo = buildCatalogo();
   const tipos = buildTipos(catalogo, FieldValue);
   const conductores = buildConductores(catalogo, FieldValue, Timestamp);
-  const stats = checkCoherencia(tipos, conductores);
+  const stats = checkCoherencia(tipos, conductores, lineas);
 
   // Tenant.
   const tenantDoc = {
@@ -543,6 +600,7 @@ async function sembrar(db, auth, FieldValue, Timestamp) {
     (b) => b.set(db.collection("usuarios").doc(jefe.uid), usuarioDoc),
     (b) => b.set(db.collection("convenio").doc(CENTRO_ID), convenioDoc),
     (b) => b.set(db.collection("cuadrantes").doc(CUADRANTE_ID), cuadranteDoc),
+    ...lineas.map((l) => (b) => b.set(db.collection("lineas").doc(l.id), l.doc)),
     ...tipos.map((t) => (b) => b.set(db.collection("tipos_turno").doc(t.id), t.doc)),
     ...conductores.map(
       (c) => (b) => b.set(db.collection("conductores").doc(c.id), c.doc),
@@ -550,7 +608,13 @@ async function sembrar(db, auth, FieldValue, Timestamp) {
   ];
   await commitInChunks(db, ops);
 
-  return { jefeUid: jefe.uid, nTipos: tipos.length, nConductores: conductores.length, stats };
+  return {
+    jefeUid: jefe.uid,
+    nLineas: lineas.length,
+    nTipos: tipos.length,
+    nConductores: conductores.length,
+    stats,
+  };
 }
 
 function printResumen(target, r) {
@@ -558,7 +622,8 @@ function printResumen(target, r) {
   console.log(`  target:        ${target.toUpperCase()}`);
   console.log(`  tenant:        ${TENANT_ID}  ("PRUEBA TUCARSA (líneas 1-5)")`);
   console.log(`  centro:        ${CENTRO_ID}  ("Centro Prueba Cartagena")`);
-  console.log(`  tipos turno:   ${r.nTipos}`);
+  console.log(`  líneas:        ${r.nLineas} (con colores: lin_1..lin_5)`);
+  console.log(`  tipos turno:   ${r.nTipos}  (todos con lineaId → su línea)`);
   console.log(`  conductores:   ${r.nConductores}`);
   console.log(`  convenio:      sí (singleton id=${CENTRO_ID})`);
   console.log(`  cuadrante:     ${CUADRANTE_ID}  (borrador, estadoGeneracion=idle)`);
