@@ -5,6 +5,7 @@ import {
   Bus,
   Calendar,
   CalendarClock,
+  CalendarRange,
   Clock,
   LayoutDashboard,
   MapPin,
@@ -60,6 +61,7 @@ export const NAV_BY_ROL: Record<Rol, NavSection[]> = {
       items: [
         { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
         { path: '/cuadrante', label: 'Cuadrante', icon: Calendar },
+        { path: '/calendario', label: 'Calendario', icon: CalendarRange },
         { path: '/conductores', label: 'Conductores', icon: Users },
         { path: '/incidencias', label: 'Incidencias', icon: AlertTriangle },
         { path: '/intercambios', label: 'Intercambios', icon: ArrowLeftRight },

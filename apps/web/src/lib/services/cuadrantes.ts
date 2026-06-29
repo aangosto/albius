@@ -14,6 +14,7 @@
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   onSnapshot,
   orderBy,
@@ -116,6 +117,19 @@ export function suscribirCuadrante(
       onError?.(err);
     },
   );
+}
+
+/**
+ * Lectura ONE-SHOT del doc del cuadrante (get-by-id, sin onSnapshot). Para vistas
+ * que CONSUMEN un cuadrante ya generado (B30 Calendario) y no necesitan reaccionar
+ * a cambios async. Devuelve null si no existe. Misma regla `read sameTenant` que
+ * suscribirCuadrante (en un get, resource.data está disponible; sin caveat D6.5).
+ */
+export async function obtenerCuadrante(
+  cuadranteId: string,
+): Promise<Cuadrante | null> {
+  const snap = await getDoc(doc(db, COLLECTIONS.CUADRANTES, cuadranteId));
+  return snap.exists() ? (snap.data() as Cuadrante) : null;
 }
 
 /**

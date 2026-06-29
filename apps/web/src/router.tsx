@@ -14,6 +14,7 @@ import CambiarPasswordPage from '@/pages/CambiarPasswordPage';
 // muestra <LoadingShell fullscreen={false}> mientras tanto. B15 (bundle split).
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 const CuadrantePage = lazy(() => import('@/pages/CuadrantePage'));
+const CalendarioPage = lazy(() => import('@/pages/CalendarioPage'));
 const ConductoresPage = lazy(() => import('@/pages/ConductoresPage'));
 const LineasPage = lazy(() => import('@/pages/LineasPage'));
 const TiposTurnoPage = lazy(() => import('@/pages/TiposTurnoPage'));
@@ -43,6 +44,7 @@ export const router = createBrowserRouter([
         children: [
           { path: '/dashboard', element: <DashboardPage /> },
           { path: '/cuadrante', element: <CuadrantePage /> },
+          { path: '/calendario', element: <CalendarioPage /> },
           { path: '/conductores', element: <ConductoresPage /> },
           { path: '/lineas', element: <LineasPage /> },
           { path: '/tipos-turno', element: <TiposTurnoPage /> },
