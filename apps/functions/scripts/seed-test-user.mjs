@@ -180,7 +180,7 @@ for (const spec of USERS) {
     displayName: spec.nombre,
   });
   if (spec.claims) {
-    await auth.setCustomUserClaims(userRecord.uid, spec.claims);
+    await auth.setCustomUserClaims(userRecord.uid, { ...spec.claims, ...(spec.conductorId && { conductorId: spec.conductorId }) });
   }
   if (spec.rol) {
     const usuarioDoc = {

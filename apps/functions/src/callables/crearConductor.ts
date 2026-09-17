@@ -17,7 +17,9 @@ import {
  *
  * Crea un conductor con cuenta completa en el sistema:
  *   - Firebase Auth user (displayName = "nombre apellidos").
- *   - Custom claims: rol="conductor", tenantId, centroId.
+ *   - Custom claims: rol="conductor", tenantId, centroId, conductorId (B34.1:
+ *     las reglas Firestore self-only del conductor leen el claim; una regla no
+ *     puede hacer get() a /usuarios por cada doc de un list).
  *   - Documento /usuarios/{uid} con auditoría (D7) y conductorId (D1).
  *   - Documento /conductores/{tenantId}_{numeroEmpleado} con
  *     usuarioId, auditoría (D7) y campos operativos.
@@ -97,6 +99,7 @@ export const crearConductor = onCall(async (request) => {
       rol: "conductor",
       tenantId: payload.tenantId,
       centroId: payload.centroId,
+      conductorId, // B34.1: reglas self-only (/asignaciones, /ausencias)
     });
 
     const usuarioDoc = {

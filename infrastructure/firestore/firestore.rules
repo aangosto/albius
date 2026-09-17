@@ -64,6 +64,14 @@ service cloud.firestore {
       return isAuth() && request.auth.uid == uid;
     }
 
+    // B34.1 — el conductor solo lee lo SUYO. `conductorId` viaja en el custom
+    // claim (crearConductor + seed): una regla no puede hacer get() a /usuarios
+    // por cada doc de un list. D6.5: en un `list` no hay resource.data, así que
+    // la query del cliente DEBE constreñir where('conductorId','==',claim).
+    function esSuConductor(conductorId) {
+      return isConductor() && request.auth.token.conductorId == conductorId;
+    }
+
     // Devuelve true si la operación de update intenta modificar al menos uno
     // de los campos listados. Se usa para impedir que un usuario pueda alterar
     // campos sensibles de su propio documento (rol, tenantId, etc.).
@@ -176,8 +184,11 @@ service cloud.firestore {
     // ========================================================================
 
     match /conductores/{conductorId} {
+      // B34.1: el conductor solo lee SU ficha (usuarioId == uid; no necesita
+      // claim). Las fichas llevan DNI/teléfono/observaciones de compañeros.
       allow read: if isSuperAdmin()
-                  || (isAuth() && sameTenant(resource.data.tenantId));
+                  || (isJefeTrafico() && sameTenant(resource.data.tenantId))
+                  || (isConductor() && resource.data.usuarioId == request.auth.uid);
 
       allow create: if (isSuperAdmin() || isJefeTrafico())
                     && sameTenant(request.resource.data.tenantId);
@@ -372,15 +383,20 @@ service cloud.firestore {
     //  en borrador, fecha dentro del mes, anti-cross-centro) la imponen los
     //  callables (Admin SDK, bypassan reglas); la regla es defensa de cliente.
     //
-    //  read tenant-scoped: el LISTADO del jefe DEBE filtrar where('tenantId')
-    //  (D6.5: sameTenant en list no puede leer resource.data). El conductor lee
-    //  sus asignaciones (sameTenant cubre el tenant; el filtrado por conductorId
-    //  lo hace la query). versiones_cuadrante + cambios_asignaciones siguen en
-    //  deny-all (se difieren al bloque de Intercambios).
+    //  read tenant-scoped para el jefe: su LISTADO DEBE filtrar where('tenantId')
+    //  (D6.5: sameTenant en list no puede leer resource.data).
+    //  B34.1 — CONDUCTOR (Mi horario): /cuadrantes solo los que NO están en
+    //  borrador (trabajo en curso, no crea expectativas) → su query debe
+    //  constreñir where('estado','in',['publicado','cerrado']) (D6.5);
+    //  /asignaciones solo las SUYAS (esSuConductor por claim) → su query debe
+    //  constreñir where('conductorId','==',claim). versiones_cuadrante +
+    //  cambios_asignaciones siguen en deny-all (bloque de Intercambios).
 
     match /cuadrantes/{id} {
       allow read: if isSuperAdmin()
-                  || (isAuth() && sameTenant(resource.data.tenantId));
+                  || (isJefeTrafico() && sameTenant(resource.data.tenantId))
+                  || (isConductor() && sameTenant(resource.data.tenantId)
+                      && resource.data.estado != 'borrador');
 
       allow create: if (isSuperAdmin() || isJefeTrafico())
                     && sameTenant(request.resource.data.tenantId);
@@ -402,7 +418,8 @@ service cloud.firestore {
 
     match /asignaciones/{id} {
       allow read: if isSuperAdmin()
-                  || (isAuth() && sameTenant(resource.data.tenantId));
+                  || (isJefeTrafico() && sameTenant(resource.data.tenantId))
+                  || esSuConductor(resource.data.conductorId);
 
       allow create: if (isSuperAdmin() || isJefeTrafico())
                     && sameTenant(request.resource.data.tenantId);
@@ -467,11 +484,14 @@ service cloud.firestore {
     //  rango coherente) la imponen los callables crear/actualizar/eliminarAusencia
     //  (Admin SDK); la regla es defensa de cliente. read tenant-scoped: el listado
     //  del jefe constriñe where('tenantId') (D6.5) + where('centroId') (índice
-    //  B32). delete super_admin a nivel regla (el jefe borra vía callable).
+    //  B32). B34.1: el conductor solo lee las SUYAS (esSuConductor por claim; su
+    //  query constriñe where('conductorId')). delete super_admin a nivel regla
+    //  (el jefe borra vía callable).
 
     match /ausencias/{id} {
       allow read: if isSuperAdmin()
-                  || (isAuth() && sameTenant(resource.data.tenantId));
+                  || (isJefeTrafico() && sameTenant(resource.data.tenantId))
+                  || esSuConductor(resource.data.conductorId);
 
       allow create: if (isSuperAdmin() || isJefeTrafico())
                     && sameTenant(request.resource.data.tenantId)

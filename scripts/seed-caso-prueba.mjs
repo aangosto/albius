@@ -23,6 +23,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { createInterface } from "node:readline";
+import { randomBytes } from "node:crypto";
 
 // ============================================================================
 //  Constantes del caso de prueba
@@ -41,6 +42,25 @@ const CUADRANTE_ID = `cua_${CENTRO_ID}_${ANIO}_${MES}`;
 const JEFE_EMAIL = "jefe.prueba@albius.local";
 const JEFE_PASSWORD = "AlbiusPrueba2026!";
 const JEFE_NOMBRE = "Jefe Prueba TUCARSA";
+
+// B34.1 — 3 conductores CON cuenta Auth (Mi horario). Perfil útil para la
+// demo: 05 turnos variados sin ausencias; 11 con una semana de vacaciones
+// (ausencia PARCIAL nueva, sigue en el pool); 53 con dos permisos sueltos.
+// Contraseñas: NO en el repo — se generan por ejecución (o SEED_CONDUCTOR_PASSWORD
+// fija una para las 3) y se imprimen en el resumen. TODO[credenciales-seed-en-git]
+// sigue pendiente para el jefe.
+const CONDUCTORES_CON_CUENTA = [
+  { numeroEmpleado: "05", perfil: "turnos variados, sin ausencias" },
+  { numeroEmpleado: "11", perfil: "vacaciones 14-20/09 (ausencia parcial)" },
+  { numeroEmpleado: "53", perfil: "dos permisos sueltos (04/09 AP, 25/09 PS)" },
+];
+const conductorEmail = (n) => `conductor${n}.prueba@albius.local`;
+function generarPassword() {
+  const fija = process.env.SEED_CONDUCTOR_PASSWORD;
+  if (fija && fija.length >= 10) return fija;
+  // 12 chars base64url + sufijo para cumplir la política mínima (10+).
+  return `${randomBytes(9).toString("base64url")}Ab1!`;
+}
 
 const ACTOR = "seed-caso-prueba"; // creadoPor (paralelo a 'bootstrap-cli')
 
@@ -496,6 +516,11 @@ function buildAusencias(conductores, FieldValue, Timestamp) {
   push(byIdx(52), "permiso", "AP", ts(ANIO, MES, 4), ts(ANIO, MES, 4));
   push(byIdx(52), "permiso", "PS", ts(ANIO, MES, 25), ts(ANIO, MES, 25));
 
+  // B34.1: ausencia PARCIAL (una semana) para el conductor 11 (idx 10), que
+  // tiene cuenta Auth: en Mi horario se ven turnos Y vacaciones el mismo mes.
+  // Sigue en el pool (no es ausente total).
+  push(byIdx(10), "vacaciones", "V", ts(ANIO, MES, 14), ts(ANIO, MES, 20));
+
   const idsTotales = new Set(totales.map((t) => byIdx(t.idx).id));
   return { ausencias, idsTotales };
 }
@@ -589,13 +614,16 @@ async function commitInChunks(db, ops) {
 }
 
 async function limpiarAmbito(db, auth) {
-  // Auth: jefe de prueba (si existe).
-  try {
-    const u = await auth.getUserByEmail(JEFE_EMAIL);
-    await auth.deleteUser(u.uid);
-    await db.collection("usuarios").doc(u.uid).delete().catch(() => {});
-  } catch (e) {
-    if (e.code !== "auth/user-not-found") throw e;
+  // Auth: jefe de prueba + conductores con cuenta (si existen).
+  const emails = [JEFE_EMAIL, ...CONDUCTORES_CON_CUENTA.map((c) => conductorEmail(c.numeroEmpleado))];
+  for (const email of emails) {
+    try {
+      const u = await auth.getUserByEmail(email);
+      await auth.deleteUser(u.uid);
+      await db.collection("usuarios").doc(u.uid).delete().catch(() => {});
+    } catch (e) {
+      if (e.code !== "auth/user-not-found") throw e;
+    }
   }
   // Firestore: docs por colección dentro del centro/tenant de prueba.
   const dels = [];
@@ -673,6 +701,43 @@ async function sembrar(db, auth, FieldValue, Timestamp) {
     creadoPor: ACTOR,
     creadoEn: FieldValue.serverTimestamp(),
   };
+  // B34.1 — Conductores con cuenta (Auth + claims CON conductorId + /usuarios
+  // con conductorId + usuarioId en su doc /conductores). passwordChangeRequired
+  // =false → login directo (el flujo de primera contraseña ya está probado, B7).
+  const cuentasConductor = [];
+  const usuariosConductorOps = [];
+  for (const spec of CONDUCTORES_CON_CUENTA) {
+    const cond = conductores.find((c) => c.doc.numeroEmpleado === spec.numeroEmpleado);
+    if (!cond) throw new Error(`Conductor ${spec.numeroEmpleado} no existe en el seed.`);
+    const email = conductorEmail(spec.numeroEmpleado);
+    const password = generarPassword();
+    const nombreCompleto = `${cond.doc.nombre} ${cond.doc.apellidos}`;
+    const u = await auth.createUser({ email, password, displayName: nombreCompleto });
+    await auth.setCustomUserClaims(u.uid, {
+      rol: "conductor",
+      tenantId: TENANT_ID,
+      centroId: CENTRO_ID,
+      conductorId: cond.id, // B34.1: reglas self-only
+    });
+    cond.doc.usuarioId = u.uid; // enlace inverso conductor→usuario (como crearConductor)
+    usuariosConductorOps.push((b) =>
+      b.set(db.collection("usuarios").doc(u.uid), {
+        id: u.uid,
+        email,
+        nombreCompleto,
+        rol: "conductor",
+        tenantId: TENANT_ID,
+        centroId: CENTRO_ID,
+        conductorId: cond.id, // D1: enlace usuario→conductor
+        estado: "activo",
+        passwordChangeRequired: false,
+        fechaCreacion: FieldValue.serverTimestamp(),
+        creadoPor: ACTOR,
+        creadoEn: FieldValue.serverTimestamp(),
+      }),
+    );
+    cuentasConductor.push({ ...spec, email, password, uid: u.uid, conductorId: cond.id });
+  }
   // Convenio (id = centroId, singleton D6.9).
   const convenioDoc = {
     id: CENTRO_ID,
@@ -703,6 +768,7 @@ async function sembrar(db, auth, FieldValue, Timestamp) {
     (b) => b.set(db.collection("tenants").doc(TENANT_ID), tenantDoc),
     (b) => b.set(db.collection("centros").doc(CENTRO_ID), centroDoc),
     (b) => b.set(db.collection("usuarios").doc(jefe.uid), usuarioDoc),
+    ...usuariosConductorOps,
     (b) => b.set(db.collection("convenio").doc(CENTRO_ID), convenioDoc),
     (b) => b.set(db.collection("cuadrantes").doc(CUADRANTE_ID), cuadranteDoc),
     ...lineas.map((l) => (b) => b.set(db.collection("lineas").doc(l.id), l.doc)),
@@ -716,6 +782,7 @@ async function sembrar(db, auth, FieldValue, Timestamp) {
 
   return {
     jefeUid: jefe.uid,
+    cuentasConductor,
     nLineas: lineas.length,
     nTipos: tipos.length,
     nConductores: conductores.length,
@@ -734,7 +801,7 @@ function printResumen(target, r) {
   console.log(`  tipos turno:   ${r.nTipos}  (todos con lineaId → su línea)`);
   console.log(`  conductores:   ${r.nConductores}`);
   console.log(
-    `  ausencias:     ${r.nAusencias} (${r.nAusentesTotales} conductores ausentes el mes completo → fuera del pool; resto permisos de 1 día)`,
+    `  ausencias:     ${r.nAusencias} (${r.nAusentesTotales} conductores ausentes el mes completo → fuera del pool; resto permisos de 1 día + 1 semana de vacaciones del conductor 11)`,
   );
   console.log(`  convenio:      sí (singleton id=${CENTRO_ID})`);
   console.log(`  cuadrante:     ${CUADRANTE_ID}  (borrador, estadoGeneracion=idle)`);
@@ -743,6 +810,11 @@ function printResumen(target, r) {
   console.log(`  email:         ${JEFE_EMAIL}`);
   console.log(`  password:      ${JEFE_PASSWORD}`);
   console.log(`  uid:           ${r.jefeUid}`);
+  console.log("\n  --- Credenciales de CONDUCTORES con cuenta (B34.1, Mi horario) ---");
+  console.log("  (contraseñas generadas en esta ejecución; no están en el repo)");
+  for (const c of r.cuentasConductor) {
+    console.log(`  ${c.email}  /  ${c.password}   → ${c.conductorId}  (${c.perfil})`);
+  }
   console.log("\n  --- Coherencia / cobertura (assert OK) ---");
   console.log(
     `  cobertura por turno (solo disponibles): min=${r.stats.minCobertura} max=${r.stats.maxCobertura} avg=${r.stats.avgCobertura} (mínimo exigido ≥4)`,

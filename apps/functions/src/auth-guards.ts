@@ -25,6 +25,10 @@ export interface Claims {
   rol: Rol;
   tenantId?: string;
   centroId?: string;
+  /** Solo rol conductor (B34.1): doc-id de /conductores. Lo leen las reglas
+   *  Firestore self-only. TODO[claims-conductorid-migracion]: los conductores
+   *  creados antes de B34.1 no lo llevan (en producción no existe ninguno). */
+  conductorId?: string;
 }
 
 /**

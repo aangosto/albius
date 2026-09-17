@@ -43,6 +43,10 @@ export interface AuthUser {
   rol: Rol | null;
   tenantId: string | null;
   centroId: string | null;
+  /** Solo rol conductor (B34.1): doc-id de /conductores. Se lee del doc
+   *  /usuarios (no del token) para que funcione aunque el token sea anterior
+   *  al claim; las reglas Firestore sí usan el claim. */
+  conductorId: string | null;
   passwordChangeRequired: boolean | null;
 }
 
@@ -92,6 +96,8 @@ function buildAuthUser(
     rol: typeof claims.rol === 'string' ? (claims.rol as Rol) : null,
     tenantId: typeof claims.tenantId === 'string' ? claims.tenantId : null,
     centroId: typeof claims.centroId === 'string' ? claims.centroId : null,
+    conductorId:
+      typeof usuarioDoc?.conductorId === 'string' ? usuarioDoc.conductorId : null,
     passwordChangeRequired:
       usuarioDoc === null ? null : usuarioDoc.passwordChangeRequired === true,
   };
