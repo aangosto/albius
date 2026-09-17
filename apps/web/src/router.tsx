@@ -16,6 +16,7 @@ const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 const CuadrantePage = lazy(() => import('@/pages/CuadrantePage'));
 const CalendarioPage = lazy(() => import('@/pages/CalendarioPage'));
 const ConductoresPage = lazy(() => import('@/pages/ConductoresPage'));
+const AusenciasPage = lazy(() => import('@/pages/AusenciasPage'));
 const LineasPage = lazy(() => import('@/pages/LineasPage'));
 const TiposTurnoPage = lazy(() => import('@/pages/TiposTurnoPage'));
 const IncidenciasPage = lazy(() => import('@/pages/IncidenciasPage'));
@@ -46,6 +47,7 @@ export const router = createBrowserRouter([
           { path: '/cuadrante', element: <CuadrantePage /> },
           { path: '/calendario', element: <CalendarioPage /> },
           { path: '/conductores', element: <ConductoresPage /> },
+          { path: '/ausencias', element: <AusenciasPage /> },
           { path: '/lineas', element: <LineasPage /> },
           { path: '/tipos-turno', element: <TiposTurnoPage /> },
           { path: '/incidencias', element: <IncidenciasPage /> },

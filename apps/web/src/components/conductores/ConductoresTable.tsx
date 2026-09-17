@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -15,7 +16,7 @@ import type { Conductor, EstadoConductor } from '@albius/shared';
  * Tabla de conductores del centro del jefe (B22). Columnas: Conductor
  * (nombre+apellidos + nº empleado subtexto), Categoría, Estado (Badge), Config
  * (conteo "N líneas · M turnos"), Reserva (Badge si puedeSerReserva), Acciones
- * (Editar).
+ * (Ausencias → /ausencias?conductorId=<id>, B32.2; Editar).
  *
  * `ESTADO_CONDUCTOR_LABEL` exportado como SSOT de etiquetas para que el filtro
  * de la página reuse las mismas cadenas (patrón TIPO_LABEL/ESTADO_LABEL de
@@ -110,13 +111,22 @@ export default function ConductoresTable({
                 )}
               </TableCell>
               <TableCell className="text-right">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => onEditar(c)}
-                >
-                  Editar
-                </Button>
+                <div className="flex justify-end gap-2">
+                  <Button variant="ghost" size="sm" asChild>
+                    <Link
+                      to={`/ausencias?conductorId=${encodeURIComponent(c.id)}`}
+                    >
+                      Ausencias
+                    </Link>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onEditar(c)}
+                  >
+                    Editar
+                  </Button>
+                </div>
               </TableCell>
             </TableRow>
           ))}
