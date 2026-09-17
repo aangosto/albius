@@ -34,7 +34,13 @@ import {
 export type AccionCuadrante = 'publicar' | 'cerrar' | 'reabrir';
 
 export interface CambiarEstadoCuadranteDialogProps {
-  target: { cuadranteId: string; accion: AccionCuadrante; mesLabel: string } | null;
+  target: {
+    cuadranteId: string;
+    accion: AccionCuadrante;
+    mesLabel: string;
+    /** B35.2: aviso NO bloqueante (p.ej. antelación de publicación del convenio). */
+    aviso?: string;
+  } | null;
   onClose: () => void;
 }
 
@@ -124,6 +130,15 @@ export default function CambiarEstadoCuadranteDialog({
           <DialogDescription>{copy.descripcion(mes)}</DialogDescription>
         </DialogHeader>
 
+        {target?.aviso && (
+          <Alert
+            data-testid="aviso-publicar"
+            className="border-amber-500/50 text-amber-900 dark:text-amber-200"
+          >
+            <AlertDescription>{target.aviso}</AlertDescription>
+          </Alert>
+        )}
+
         {errorRemoto && (
           <Alert variant="destructive">
             <AlertDescription>{errorRemoto}</AlertDescription>
@@ -139,7 +154,11 @@ export default function CambiarEstadoCuadranteDialog({
             onClick={handleConfirmar}
             disabled={submitting}
           >
-            {submitting ? 'Procesando…' : copy.boton}
+            {submitting
+              ? 'Procesando…'
+              : target?.aviso
+                ? `${copy.boton} de todos modos`
+                : copy.boton}
           </Button>
         </DialogFooter>
       </DialogContent>

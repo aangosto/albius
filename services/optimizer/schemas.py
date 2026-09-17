@@ -51,6 +51,10 @@ class ConvenioInput(BaseModel):
     maxHorasSemanales: float
     computoHoras: ComputoHoras = "jornada"
     maxDiasConsecutivosTrabajados: int
+    # B35.2: findes consecutivos trabajados, restricción BLANDA (penalizada con
+    # W_FINDE, nunca deja plazas sin cubrir). 0 = desactivada. Default 0 para que
+    # los requests anteriores a B35.2 sigan siendo válidos.
+    maxFinesSemanaConsecutivosTrabajados: int = 0
 
 
 class ConductorInput(BaseModel):
@@ -102,6 +106,10 @@ class EstadisticasOutput(BaseModel):
     satisfaccionMedia: float
     preferenciasCumplidas: int
     preferenciasNoCumplidas: int
+    # B35.2 — reporte de la restricción BLANDA de findes consecutivos: el jefe
+    # debe ver los incumplimientos antes que el conductor.
+    findesConsecutivosExcedidos: int = 0  # findes por encima del máximo (Σ conductores)
+    conductoresConFindesExcedidos: int = 0
 
 
 class DiagnosticoOutput(BaseModel):

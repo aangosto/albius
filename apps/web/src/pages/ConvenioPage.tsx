@@ -35,12 +35,14 @@ import type { Convenio } from '@albius/shared';
  * formulario plano dentro de una Card, sin dialog ni tabla. Gate D4.13 split
  * (jefe; el centro sale de claims).
  *
- * HONESTIDAD DE PRODUCTO: el motor (B29) aplica HOY solo 4 campos
- * (descanso entre jornadas, horas semanales, cómputo de horas, días
- * consecutivos). El resto está en el modelo y se persiste, pero el
- * optimizador AÚN NO lo aplica (TODO[convenio-restricciones-no-aplicadas-mvp],
- * B35.2). La página lo marca por grupo para que el jefe no crea que se aplica
- * lo que no se aplica.
+ * HONESTIDAD DE PRODUCTO: el motor aplica HOY 5 campos como restricción
+ * (descanso entre jornadas, horas semanales, cómputo de horas y días
+ * consecutivos DURAS; findes consecutivos BLANDA desde B35.2) y la antelación
+ * de publicación como AVISO al publicar (B35.2). El resto (descanso semanal,
+ * domingos libres, horas anuales, festivos como extras) está en el modelo y se
+ * persiste, pero el optimizador AÚN NO lo aplica
+ * (TODO[convenio-restricciones-no-aplicadas-mvp]). La página lo marca por grupo
+ * para que el jefe no crea que se aplica lo que no se aplica.
  *
  * Sin convenio el optimizador NO puede generar (buildRequest lanza error, sin
  * defaults): el estado "sin convenio" lo dice y ofrece el mismo form vacío.
@@ -101,6 +103,20 @@ const CAMPOS_APLICADOS: DefCampo[] = [
     ayuda: 'Racha: tras N días seguidos, descanso obligatorio.',
     min: 1, max: 31, integer: true, unidad: 'días',
   },
+  {
+    key: 'maxFinesSemanaConsecutivosTrabajados',
+    label: 'Máximo de fines de semana consecutivos trabajados',
+    ayuda:
+      'Regla BLANDA (B35.2): el optimizador la penaliza pero cubre antes las plazas. Los incumplimientos se muestran en los KPIs del cuadrante. 0 = sin límite.',
+    min: 0, max: 53, integer: true, unidad: 'findes',
+  },
+  {
+    key: 'antelacionMinimaPublicacionDias',
+    label: 'Antelación mínima de publicación',
+    ayuda:
+      'Días antes del inicio del mes con que debe publicarse. Se aplica como AVISO al publicar (no bloquea).',
+    min: 0, max: 365, integer: true, unidad: 'días',
+  },
 ];
 
 /** Campos REGISTRADOS pero que el optimizador aún no aplica (B35.2). */
@@ -110,12 +126,6 @@ const CAMPOS_REGISTRADOS: DefCampo[] = [
     label: 'Descanso semanal mínimo',
     ayuda: 'Horas de descanso continuo por semana (habitualmente 36 h).',
     min: 0, max: 168, exclusiveMin: true, unidad: 'h',
-  },
-  {
-    key: 'maxFinesSemanaConsecutivosTrabajados',
-    label: 'Máximo de fines de semana consecutivos trabajados',
-    ayuda: 'Fines de semana seguidos con algún turno en sábado o domingo.',
-    min: 0, max: 53, integer: true, unidad: 'findes',
   },
   {
     key: 'minDomingosLibresAño',
@@ -128,12 +138,6 @@ const CAMPOS_REGISTRADOS: DefCampo[] = [
     label: 'Máximo de horas anuales',
     ayuda: 'Jornada anual del convenio.',
     min: 0, max: 8784, exclusiveMin: true, unidad: 'h',
-  },
-  {
-    key: 'antelacionMinimaPublicacionDias',
-    label: 'Antelación mínima de publicación',
-    ayuda: 'Días antes del inicio del mes con que debe publicarse el cuadrante.',
-    min: 0, max: 365, integer: true, unidad: 'días',
   },
 ];
 
@@ -321,7 +325,8 @@ function ConvenioPageAuthorized({
                 <Badge>se aplica</Badge>
               </div>
               <CardDescription>
-                Estas reglas SÍ las respeta el cuadrante generado.
+                Estas reglas SÍ las respeta el cuadrante generado (la de fines
+                de semana como penalización; la antelación, como aviso).
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 sm:grid-cols-2">

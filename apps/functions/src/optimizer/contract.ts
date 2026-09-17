@@ -46,6 +46,8 @@ export interface ConvenioInput {
   maxHorasSemanales: number;
   computoHoras: "jornada" | "conduccion";
   maxDiasConsecutivosTrabajados: number;
+  /** B35.2: restricción BLANDA (penalizada) en el motor. 0 = sin límite. */
+  maxFinesSemanaConsecutivosTrabajados: number;
 }
 
 export interface ConductorInput {
@@ -92,6 +94,11 @@ export interface EstadisticasOutput {
   satisfaccionMedia: number; // placeholder mientras W_PREF está desactivado
   preferenciasCumplidas: number;
   preferenciasNoCumplidas: number;
+  // B35.2 — incumplimientos de la restricción BLANDA de findes consecutivos:
+  // nº de fines de semana trabajados por encima del máximo (sumando todos los
+  // conductores) y nº de conductores afectados. 0/0 = se respetó.
+  findesConsecutivosExcedidos: number;
+  conductoresConFindesExcedidos: number;
 }
 
 export interface DiagnosticoOutput {

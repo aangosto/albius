@@ -43,10 +43,19 @@ from schemas import (
     OptimizarResponse,
 )
 
-# Pesos del objetivo (paridad con el spike). Jerarquía W_COV >> W_NOCT > W_EQ.
+# Pesos del objetivo (paridad con el spike). Jerarquía W_COV >> W_FINDE > W_NOCT > W_EQ.
 W_COV = 10000.0
 W_EQ = 2.0
 W_NOCT = 8.0
+# B35.2 — findes consecutivos por encima del máximo del convenio (BLANDA).
+# Justificación del valor: W_EQ penaliza cada MINUTO de span de carga (2/min →
+# una hora de desequilibrio = 120), W_NOCT cada par de noches seguidas (8) y
+# W_COV cada plaza sin cubrir (10000). Un finde de más cuesta 500 = ~4 h de
+# desequilibrio de carga: el motor prefiere claramente repartir los findes
+# antes que igualar cargas o evitar noches seguidas, pero NUNCA deja una plaza
+# sin cubrir para evitarlo (20 findes excedidos < 1 plaza). Con demanda de
+# finde ≤ pool disponible, el óptimo es 0 excesos sin coste de cobertura.
+W_FINDE = 500.0
 
 # Política de parada POR SEMANA (B29 A.4). El gap relativo no sirve como criterio
 # (cota floja de span/W_noct → gap alto aunque la cobertura sea plena), así que se
@@ -135,7 +144,11 @@ def optimizar(
     }
     RHO = req.convenio.descansoMinimoEntreJornadasHoras * 60.0
     max_consec = req.convenio.maxDiasConsecutivosTrabajados
+    # B35.2: 0 (o ausente) = sin límite de findes consecutivos.
+    max_findes = req.convenio.maxFinesSemanaConsecutivosTrabajados or 0
     week_time_limit = req.timeLimitSeconds or WEEK_TIME_LIMIT
+    # Día de finde (sábado=5, domingo=6 en weekday()).
+    es_finde = {d: _parse_date(dias[d].fecha).weekday() >= 5 for d in range(len(dias))}
 
     # Partición en semanas naturales (lunes-domingo ISO); días contiguos.
     week_of = {d: _parse_date(dias[d].fecha).isocalendar()[:2] for d in range(len(dias))}
@@ -154,11 +167,13 @@ def optimizar(
         return True
 
     # ------------------------------------------------- resolver UNA semana
-    def resolver_semana(dsem, fija_prev, consec_prev, highs_defaults=False):
+    def resolver_semana(dsem, fija_prev, consec_prev, highs_defaults=False, findes_prev=None):
         """dsem: días globales de la semana (ordenados). fija_prev: {cid:(d_prev,tid)}
         del último día de la semana previa (para R2 frontera). consec_prev: {cid:int}
-        días consecutivos arrastrados. Devuelve (asigs, plazas_w, cubiertas_w, status,
-        gap, n_vars, n_r2)."""
+        días consecutivos arrastrados. findes_prev: {cid:int} findes consecutivos
+        trabajados al cierre de la semana previa (B35.2, cosido blando). Devuelve
+        (asigs, plazas_w, cubiertas_w, status, gap, n_vars, n_r2)."""
+        findes_prev = findes_prev or {}
         plazas = [(d, tid) for d in dsem for tid in activos_por_dia[d]]
         if not plazas:
             return [], 0, 0, "optimal", 0.0, 0, 0
@@ -310,10 +325,72 @@ def optimizar(
             )
             z_vars.append(m.zvar[(cid, i)])
 
+        # B35.2 — Findes consecutivos (BLANDA). w[cid, semana] = 1 si trabaja el
+        # finde (algún turno en sábado/domingo de esa semana ISO). Cada semana ISO
+        # contiene exactamente un finde, así que en modo semanal (dsem = 1 semana)
+        # NO hay ventana intra-semana posible: toda la restricción vive en el
+        # COSIDO (findes_prev, patrón RachaCarry): si el conductor entra con
+        # k >= max_findes findes seguidos, trabajar este finde es un exceso → se
+        # PENALIZA (exc >= w), no se prohíbe. En modo monolítico (varias semanas
+        # en dsem) se añaden además ventanas de (max_findes+1) semanas: Σw ≤
+        # max_findes + exc. exc es continua [0,1] (basta: w es binaria).
+        finde_exc_vars = []
+        if max_findes > 0:
+            semanas_dsem = sorted({week_of[d] for d in dsem})
+            fkeys = [(cid, w_) for cid in cond_ids for w_ in semanas_dsem]
+            m.wfin = pyo.Var(fkeys, domain=pyo.Binary)
+            m.WfinDef = pyo.ConstraintList()
+            for cid in cond_ids:
+                for w_ in semanas_dsem:
+                    terms = [
+                        m.X[k]
+                        for d in dsem
+                        if week_of[d] == w_ and es_finde[d]
+                        for k in x_by_cd[(cid, d)]
+                    ]
+                    if terms:
+                        # w ≥ cada x del finde (w=1 si trabaja alguno).
+                        for t_ in terms:
+                            m.WfinDef.add(m.wfin[(cid, w_)] >= t_)
+                    else:
+                        m.WfinDef.add(m.wfin[(cid, w_)] == 0)
+            # Ventanas intra-dsem (solo monolítico: len(semanas_dsem) > max_findes).
+            win_f = max_findes + 1
+            ekeys = []
+            for cid in cond_ids:
+                for i in range(0, len(semanas_dsem) - win_f + 1):
+                    ekeys.append((cid, semanas_dsem[i]))
+                # Carry: si entra con k findes seguidos, las primeras
+                # (max_findes - k + 1) semanas no pueden sumar más de
+                # (max_findes - k) findes sin exceso.
+                k = findes_prev.get(cid, 0)
+                if k > 0:
+                    ekeys.append((cid, ("carry", cid)))
+            m.fexc = pyo.Var(ekeys, domain=pyo.NonNegativeReals, bounds=(0, 1))
+            m.Fin = pyo.ConstraintList()
+            for cid in cond_ids:
+                for i in range(0, len(semanas_dsem) - win_f + 1):
+                    ventana = semanas_dsem[i : i + win_f]
+                    m.Fin.add(
+                        sum(m.wfin[(cid, w_)] for w_ in ventana)
+                        <= max_findes + m.fexc[(cid, semanas_dsem[i])]
+                    )
+                    finde_exc_vars.append(m.fexc[(cid, semanas_dsem[i])])
+                k = findes_prev.get(cid, 0)
+                if k > 0:
+                    r = max(0, max_findes - k)
+                    nsem = min(r + 1, len(semanas_dsem))
+                    m.Fin.add(
+                        sum(m.wfin[(cid, w_)] for w_ in semanas_dsem[:nsem])
+                        <= r + m.fexc[(cid, ("carry", cid))]
+                    )
+                    finde_exc_vars.append(m.fexc[(cid, ("carry", cid))])
+
         total_def = sum(m.Def[p] for p in plazas)
         total_z = sum(z_vars) if z_vars else 0
+        total_fexc = sum(finde_exc_vars) if finde_exc_vars else 0
         m.Obj = pyo.Objective(
-            expr=W_COV * total_def + W_EQ * m.span + W_NOCT * total_z,
+            expr=W_COV * total_def + W_EQ * m.span + W_NOCT * total_z + W_FINDE * total_fexc,
             sense=pyo.minimize,
         )
 
@@ -410,7 +487,7 @@ def optimizar(
         return _finalizar(
             req, asignaciones, permitido, dur, off, week_of, max_min, RHO, max_consec,
             status, plazas_mes, cubiertas_mes, deficit_mes, gap_max, n_vars_mes,
-            n_r2_mes, semana_stats, t0,
+            n_r2_mes, semana_stats, t0, max_findes, es_finde,
         )
 
     for wi, w in enumerate(semanas):
@@ -418,6 +495,7 @@ def optimizar(
         # Estado de frontera desde la semana previa.
         fija_prev: dict[str, tuple[int, str]] = {}
         consec_prev: dict[str, int] = {}
+        findes_prev: dict[str, int] = {}
         if wi > 0:
             d_prev = dias_de_semana[semanas[wi - 1]][-1]
             for cid in cond_ids:
@@ -431,9 +509,24 @@ def optimizar(
                     dd -= 1
                 if k > 0:
                     consec_prev[cid] = k
+                # B35.2: findes consecutivos trabajados hasta la semana previa
+                # (contador que arranca en 0 cada mes: TODO[findes-consecutivos-cruce-meses]).
+                if max_findes > 0:
+                    kf = 0
+                    for wprev in reversed(semanas[:wi]):
+                        trabajo = any(
+                            (cid, d) in asig_global
+                            for d in dias_de_semana[wprev]
+                            if es_finde[d]
+                        )
+                        if not trabajo:
+                            break
+                        kf += 1
+                    if kf > 0:
+                        findes_prev[cid] = kf
 
         asigs, plz, cub, st, gap, nv, nr2 = resolver_semana(
-            dsem, fija_prev, consec_prev, highs_defaults
+            dsem, fija_prev, consec_prev, highs_defaults, findes_prev
         )
         asignaciones.extend(asigs)
         for a in asigs:
@@ -466,20 +559,21 @@ def optimizar(
     return _finalizar(
         req, asignaciones, permitido, dur, off, week_of, max_min, RHO, max_consec,
         status, plazas_mes, cubiertas_mes, deficit_mes, gap_max, n_vars_mes,
-        n_r2_mes, semana_stats, t0,
+        n_r2_mes, semana_stats, t0, max_findes, es_finde,
     )
 
 
 def _finalizar(
     req, asignaciones, permitido, dur, off, week_of, max_min, RHO, max_consec,
     status, plazas_mes, cubiertas_mes, deficit_mes, gap_max, n_vars_mes,
-    n_r2_mes, semana_stats, t0,
+    n_r2_mes, semana_stats, t0, max_findes=0, es_finde=None,
 ) -> OptimizarResponse:
     """Validación del plan mensual COMPLETO (incluye fronteras) + construcción de
     la respuesta. Compartido por el modo monolítico y el descompuesto."""
-    validar_solucion(
+    blandas = validar_solucion(
         asignaciones, req=req, permitido=permitido, dur=dur, off=off,
         week_of=week_of, max_min=max_min, RHO=RHO, max_consec=max_consec,
+        max_findes=max_findes, es_finde=es_finde,
     )
     cobertura = (cubiertas_mes / plazas_mes * 100.0) if plazas_mes else 100.0
     elapsed = time.perf_counter() - t0
@@ -490,6 +584,8 @@ def _finalizar(
             satisfaccionMedia=0.0,
             preferenciasCumplidas=0,
             preferenciasNoCumplidas=0,
+            findesConsecutivosExcedidos=blandas["findes_excedidos"],
+            conductoresConFindesExcedidos=blandas["conductores_findes"],
         ),
         diagnostico=DiagnosticoOutput(
             status=status,
@@ -503,6 +599,7 @@ def _finalizar(
         ),
     )
     resp.__dict__["_semanas"] = semana_stats
+    resp.__dict__["_findes_por_conductor"] = blandas["findes_por_conductor"]
     return resp
 
 
@@ -517,10 +614,13 @@ def validar_solucion(
     max_min,
     RHO,
     max_consec,
-) -> None:
+    max_findes=0,
+    es_finde=None,
+) -> dict:
     """Aserciones independientes recalculadas DESDE la solución mensual completa
     (incluye las fronteras semana→semana). Lanza AssertionError si algo viola
-    R1/R2/R3/R4/racha."""
+    R1/R2/R3/R4/racha (DURAS). Las BLANDAS (findes consecutivos, B35.2) NO se
+    afirman: se cuentan y se devuelven para reportarlas en estadisticas."""
     dias = req.dias
     fecha_to_idx = {dias[d].fecha: d for d in range(len(dias))}
 
@@ -577,3 +677,31 @@ def validar_solucion(
                 f"(max {max_consec})"
             )
             prev = d
+
+    # B35.2 — Findes consecutivos (BLANDA): recuento sobre el mes completo
+    # (cruza semanas; el contador arranca en 0 al inicio del mes). Un finde es
+    # "trabajado" si hay turno en sábado o domingo de esa semana ISO. Cada finde
+    # más allá de max_findes seguidos cuenta como un exceso.
+    findes_excedidos = 0
+    findes_por_conductor: dict[str, int] = {}
+    if max_findes > 0 and es_finde is not None:
+        semanas = sorted(set(week_of.values()))
+        for cid, celdas in celdas_por_cond.items():
+            trabaja_w = {week_of[d] for (d, _t) in celdas if es_finde[d]}
+            run = 0
+            exc = 0
+            for w in semanas:
+                if w in trabaja_w:
+                    run += 1
+                    if run > max_findes:
+                        exc += 1
+                else:
+                    run = 0
+            if exc > 0:
+                findes_por_conductor[cid] = exc
+                findes_excedidos += exc
+    return {
+        "findes_excedidos": findes_excedidos,
+        "conductores_findes": len(findes_por_conductor),
+        "findes_por_conductor": findes_por_conductor,
+    }

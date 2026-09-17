@@ -85,6 +85,26 @@ test.describe('Convenio · jefe', () => {
     );
   });
 
+  test('publicar avisa de la antelación mínima del convenio (no bloquea)', async ({
+    page,
+  }) => {
+    // Convenio con antelación 15 días + borrador generado de 2026-09: hoy ya
+    // estamos dentro (o después) del mes → aviso, pero el botón sigue activo.
+    resetConvenioB35(true, true);
+    await page.goto('/cuadrante');
+    await page.locator('#periodo-cuadrante').fill('2026-09');
+    await page.getByRole('button', { name: 'Publicar' }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByTestId('aviso-publicar')).toContainText(
+      'exige 15 días de antelación',
+    );
+    await expect(
+      dialog.getByRole('button', { name: 'Publicar de todos modos' }),
+    ).toBeEnabled();
+    await dialog.getByRole('button', { name: 'Cancelar' }).click();
+    await expect(dialog).toBeHidden();
+  });
+
   test('validación cliente: fuera de rango bloquea el guardado', async ({
     page,
   }) => {

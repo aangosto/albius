@@ -77,6 +77,11 @@ function mapConvenio(d: FirebaseFirestore.DocumentData): ConvenioInput {
     // computoHoras es opcional en el modelo; el schema Python defaultea 'jornada'.
     computoHoras: d["computoHoras"] === "conduccion" ? "conduccion" : "jornada",
     maxDiasConsecutivosTrabajados: d["maxDiasConsecutivosTrabajados"],
+    // B35.2: blanda en el motor. Convenios legados sin el campo → 0 (sin límite).
+    maxFinesSemanaConsecutivosTrabajados:
+      typeof d["maxFinesSemanaConsecutivosTrabajados"] === "number"
+        ? d["maxFinesSemanaConsecutivosTrabajados"]
+        : 0,
   };
 }
 

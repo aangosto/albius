@@ -266,7 +266,15 @@ function CuadrantePageAuthorized({
       <CambiarEstadoCuadranteDialog
         target={
           accionCicloVida && id
-            ? { cuadranteId: id, accion: accionCicloVida, mesLabel: mesLabel(año, mes) }
+            ? {
+                cuadranteId: id,
+                accion: accionCicloVida,
+                mesLabel: mesLabel(año, mes),
+                aviso:
+                  accionCicloVida === 'publicar'
+                    ? avisoAntelacion(convenio, año, mes) ?? undefined
+                    : undefined,
+              }
             : null
         }
         onClose={() => setAccionCicloVida(null)}
@@ -433,6 +441,20 @@ function KpiGrid({
       label: 'Cobertura',
       value: `${formatNum(estadisticas.coberturaServicios)}%`,
     },
+    // B35.2: la restricción de findes consecutivos es BLANDA en el motor; sus
+    // incumplimientos se reportan aquí para que el jefe los vea antes que el
+    // conductor. Ausente en cuadrantes generados antes de B35.2.
+    ...(estadisticas.findesConsecutivosExcedidos !== undefined
+      ? [
+          {
+            label: 'Findes seguidos excedidos',
+            value:
+              estadisticas.findesConsecutivosExcedidos === 0
+                ? '0'
+                : `${estadisticas.findesConsecutivosExcedidos} (${estadisticas.conductoresConFindesExcedidos ?? 0} cond.)`,
+          },
+        ]
+      : []),
     {
       label: 'Satisfacción media',
       value: `${formatNum(estadisticas.satisfaccionMedia)}%`,
@@ -447,7 +469,7 @@ function KpiGrid({
     },
   ];
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
       {kpis.map((k) => (
         <Card key={k.label}>
           <CardContent className="p-4">
@@ -532,6 +554,34 @@ function AsignacionesTabla({
 // ============================================================================
 //  Helpers
 // ============================================================================
+
+/**
+ * B35.2 — antelación mínima de publicación del convenio, como AVISO no
+ * bloqueante (mismo criterio que B33.2: el jefe puede saltarse una regla
+ * conscientemente). Se calcula en la UI (tiene convenio y cuadrante); el
+ * callable no cambia. Días de antelación = días desde hoy (UTC) hasta el
+ * primer día del mes del cuadrante.
+ */
+function avisoAntelacion(
+  convenio: Convenio | null,
+  año: number,
+  mes: number,
+): string | null {
+  const n = convenio?.antelacionMinimaPublicacionDias ?? 0;
+  if (n <= 0) return null;
+  const primerDia = Date.UTC(año, mes - 1, 1);
+  const hoy = new Date();
+  const hoyUTC = Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth(), hoy.getUTCDate());
+  const dias = Math.floor((primerDia - hoyUTC) / 86400000);
+  if (dias >= n) return null;
+  const con =
+    dias < 0
+      ? 'el mes ya ha empezado'
+      : dias === 0
+        ? 'publicas el mismo día'
+        : `publicas con ${dias} ${dias === 1 ? 'día' : 'días'}`;
+  return `El convenio exige ${n} días de antelación para publicar; ${con}.`;
+}
 
 /**
  * B35.1 (opción 12b del reconocimiento): el cuadrante no guarda con qué
