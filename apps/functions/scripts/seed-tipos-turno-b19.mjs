@@ -54,9 +54,12 @@ const USERS = [
     email: "conductor@albius.local",
     nombre: "Conductor Test",
     rol: "conductor",
-    claims: { rol: "conductor", tenantId: TENANT_ID, centroId: CENTRO_ID },
+    // B34.2: conductorId en claims (reglas self-only B34.1) + doc /usuarios.
+    // El doc /conductores/cond_e2e_conductor lo crea reset-mi-horario-b34.
+    claims: { rol: "conductor", tenantId: TENANT_ID, centroId: CENTRO_ID, conductorId: "cond_e2e_conductor" },
     tenantId: TENANT_ID,
     centroId: CENTRO_ID,
+    conductorId: "cond_e2e_conductor",
   },
 ];
 
@@ -128,6 +131,7 @@ for (const spec of USERS) {
   };
   if (spec.tenantId) doc.tenantId = spec.tenantId;
   if (spec.centroId) doc.centroId = spec.centroId;
+  if (spec.conductorId) doc.conductorId = spec.conductorId;
   await db.collection("usuarios").doc(u.uid).set(doc);
 }
 

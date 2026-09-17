@@ -17,6 +17,7 @@ import { test as setup, expect } from '@playwright/test';
 
 const AUTH_FILE_JEFE = 'e2e/.auth/jefe.json';
 const AUTH_FILE_ADMIN = 'e2e/.auth/admin.json';
+const AUTH_FILE_CONDUCTOR = 'e2e/.auth/conductor.json';
 
 setup('login como jefe de tráfico', async ({ page }) => {
   await page.goto('/login');
@@ -50,4 +51,21 @@ setup('login como super_admin', async ({ page }) => {
   await expect(page.getByRole('link', { name: 'Usuarios' })).toBeVisible();
 
   await page.context().storageState({ path: AUTH_FILE_ADMIN, indexedDB: true });
+});
+
+// conductor (B34.2): home /mi-horario. Los specs de Mi horario usan este
+// storageState vía test.use.
+setup('login como conductor', async ({ page }) => {
+  await page.goto('/login');
+
+  await page.locator('input[type="email"]').fill('conductor@albius.local');
+  await page.locator('input[type="password"]').fill('albius123');
+  await page.getByRole('button', { name: 'Entrar' }).click();
+
+  await page.waitForURL('**/mi-horario');
+  await expect(page.getByRole('heading', { name: 'Mi horario' })).toBeVisible();
+
+  await page
+    .context()
+    .storageState({ path: AUTH_FILE_CONDUCTOR, indexedDB: true });
 });

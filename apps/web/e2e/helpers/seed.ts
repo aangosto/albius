@@ -82,3 +82,15 @@ export function resetCuadranteB33(
     { stdio: 'pipe' },
   );
 }
+
+/**
+ * Mi horario (B34.2): cuadrante del MES ACTUAL publicado en centro-test con
+ * asignaciones de conductor@albius.local (cond_e2e_conductor) y de otro
+ * conductor, una ausencia, sin cuadrante el mes siguiente y borrador dentro
+ * de dos meses. Ver reset-mi-horario-b34.mjs para las fechas relativas a hoy.
+ */
+export function resetMiHorarioB34(): void {
+  execFileSync('node', [path.join(SCRIPTS, 'reset-mi-horario-b34.mjs')], {
+    stdio: 'pipe',
+  });
+}

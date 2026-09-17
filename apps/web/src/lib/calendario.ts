@@ -96,6 +96,25 @@ export function fechaISOUTC(ts: Timestamp): string {
   return ts.toDate().toISOString().slice(0, 10);
 }
 
+/** Duración en minutos de una jornada HH:mm→HH:mm (cruce de medianoche: fin<=inicio → +24h). */
+export function duracionMinutos(horaInicio: string, horaFin: string): number {
+  const ini = horaAMinutos(horaInicio);
+  let fin = horaAMinutos(horaFin);
+  if (fin <= ini) fin += 24 * 60;
+  return fin - ini;
+}
+
+/** "YYYY-MM-DD" de hoy en UTC (D6.22). */
+export function hoyISO(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/** Suma `dias` a una fecha ISO (UTC). */
+export function sumarDiasISO(iso: string, dias: number): string {
+  const t = Date.parse(`${iso}T00:00:00.000Z`) + dias * 24 * 60 * 60 * 1000;
+  return new Date(t).toISOString().slice(0, 10);
+}
+
 function horaAMinutos(hhmm: string): number {
   const [h, m] = hhmm.split(':').map(Number);
   return (h ?? 0) * 60 + (m ?? 0);
