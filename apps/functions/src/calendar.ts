@@ -66,3 +66,34 @@ export function resolverTipoDia(
   if (diaSemana === 0) return "domingo";
   return "laborable";
 }
+
+/**
+ * ESPEJO RUNTIME 1:1 de `packages/shared/src/calendar/expandirAusenciaEnMes.ts`
+ * (B32.3; misma razón que `resolverTipoDia` arriba — TODO[refactor-shared-build]).
+ * Expande el rango CERRADO [fechaInicio, fechaFin] de una ausencia a los días ISO
+ * "YYYY-MM-DD" que caen dentro del mes natural, recortando por ambos extremos.
+ * Todo en UTC. Rango fuera del mes (o invertido) → []. Los tests unitarios viven
+ * en shared (vitest); mantener sincronizados.
+ */
+export function expandirAusenciaEnMes(
+  fechaInicio: Date,
+  fechaFin: Date,
+  año: number,
+  mes: number,
+): string[] {
+  const diaUTC = (d: Date): number =>
+    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  const primerDiaMes = Date.UTC(año, mes - 1, 1);
+  const ultimoDiaMes = Date.UTC(año, mes, 0);
+
+  const desde = Math.max(diaUTC(fechaInicio), primerDiaMes);
+  const hasta = Math.min(diaUTC(fechaFin), ultimoDiaMes);
+  if (desde > hasta) return [];
+
+  const MS_DIA = 24 * 60 * 60 * 1000;
+  const dias: string[] = [];
+  for (let t = desde; t <= hasta; t += MS_DIA) {
+    dias.push(new Date(t).toISOString().slice(0, 10));
+  }
+  return dias;
+}

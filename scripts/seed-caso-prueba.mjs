@@ -2,8 +2,9 @@
 //
 // Siembra el CASO DE PRUEBA del optimizador (B29 Fase C.4.3) en Firestore:
 // tenant + centro + 1 jefe + 5 líneas (con colores, B30) + 38 tipos de turno
-// (cada uno con lineaId → su línea) + 60 conductores + convenio + cuadrante
-// borrador (septiembre 2026). Escritura DIRECTA con Admin SDK (NO
+// (cada uno con lineaId → su línea) + 60 conductores + ausencias (B32.3: ~17%
+// ausentes el mes completo + permisos de un día, perfil real TUCARSA) + convenio
+// + cuadrante borrador (septiembre 2026). Escritura DIRECTA con Admin SDK (NO
 // callables: el optimizador solo lee tipos_turno/conductores/convenio; crear 60
 // Auth users de conductor sería innecesario). Por eso el script respeta A MANO
 // todos los invariantes del modelo que los callables normalmente validan.
@@ -421,8 +422,108 @@ function buildConductores(catalogo, FieldValue, Timestamp) {
   return conductores;
 }
 
+/**
+ * Ausencias (B32.3), perfil real de TUCARSA: ~17% de los 60 conductores ausentes
+ * el MES COMPLETO (vacaciones "V" / baja "B" — algunas cruzan los límites del mes
+ * para ejercitar el recorte de buildRequest) + permisos de UN día ("AP", "PS")
+ * repartidos por el mes. Un conductor no puede tener dos ausencias solapadas
+ * (invariante de assertNoSolapeAusencia, respetado a mano: los de permiso no
+ * están entre los ausentes totales). Reparto por línea base (idx%5) para que
+ * ningún turno se quede sin cobertura: 2 ausentes totales por línea → cada línea
+ * conserva 10 de sus 12 conductores base + los de la línea adyacente.
+ */
+function buildAusencias(conductores, FieldValue, Timestamp) {
+  const ts = (y, m, d) => Timestamp.fromDate(new Date(Date.UTC(y, m - 1, d)));
+  const ultimoDia = new Date(Date.UTC(ANIO, MES, 0)).getUTCDate();
+  const byIdx = (idx) => conductores[idx];
+  const ausencias = [];
+  let n = 0;
+  const push = (cond, categoria, codigo, ini, fin, observaciones) => {
+    n += 1;
+    const id = `aus_${CENTRO_ID}_${String(n).padStart(3, "0")}`;
+    ausencias.push({
+      id,
+      conductorId: cond.id,
+      doc: {
+        id,
+        tenantId: TENANT_ID,
+        centroId: CENTRO_ID,
+        conductorId: cond.id,
+        categoria,
+        codigo,
+        fechaInicio: ini,
+        fechaFin: fin,
+        ...(observaciones !== undefined && { observaciones }),
+        creadoPor: ACTOR,
+        creadoEn: FieldValue.serverTimestamp(),
+      },
+    });
+  };
+
+  // Ausentes el mes completo: 10 de 60 (16.7%). idx 0..59; base línea = idx%5+1.
+  // Se eligen 2 por línea (idx ≡ k mod 5), en filas distintas para no concentrar.
+  const totales = [
+    { idx: 0, cat: "vacaciones", cod: "V", ini: ts(ANIO, MES, 1), fin: ts(ANIO, MES, ultimoDia) },
+    { idx: 6, cat: "vacaciones", cod: "V", ini: ts(ANIO, MES, 1), fin: ts(ANIO, MES, ultimoDia) },
+    { idx: 12, cat: "vacaciones", cod: "V", ini: ts(ANIO, MES - 1, 24), fin: ts(ANIO, MES, ultimoDia) }, // empieza en agosto
+    { idx: 18, cat: "vacaciones", cod: "V", ini: ts(ANIO, MES, 1), fin: ts(ANIO, MES + 1, 4) }, // acaba en octubre
+    { idx: 24, cat: "vacaciones", cod: "V", ini: ts(ANIO, MES, 1), fin: ts(ANIO, MES, ultimoDia) },
+    { idx: 31, cat: "baja", cod: "B", ini: ts(ANIO, MES - 2, 15), fin: ts(ANIO, MES + 2, 30), obs: "Baja larga (IT)" }, // envuelve el mes
+    { idx: 37, cat: "baja", cod: "B", ini: ts(ANIO, MES, 1), fin: ts(ANIO, MES, ultimoDia) },
+    { idx: 43, cat: "baja", cod: "B", ini: ts(ANIO, MES - 1, 10), fin: ts(ANIO, MES + 1, 20) }, // envuelve el mes
+    { idx: 49, cat: "vacaciones", cod: "V", ini: ts(ANIO, MES, 1), fin: ts(ANIO, MES, ultimoDia) },
+    { idx: 55, cat: "baja", cod: "B", ini: ts(ANIO, MES, 1), fin: ts(ANIO, MES, ultimoDia) },
+  ];
+  for (const t of totales) push(byIdx(t.idx), t.cat, t.cod, t.ini, t.fin, t.obs);
+
+  // Permisos de un día (inicio == fin), en conductores que NO son ausentes totales.
+  const sueltos = [
+    { idx: 2, cod: "AP", dia: 3 },
+    { idx: 9, cod: "PS", dia: 8 },
+    { idx: 15, cod: "AP", dia: 11 },
+    { idx: 21, cod: "AP", dia: 15 },
+    { idx: 28, cod: "PS", dia: 17 },
+    { idx: 34, cod: "AP", dia: 22 },
+    { idx: 40, cod: "PS", dia: 24 },
+    { idx: 47, cod: "AP", dia: 29 },
+  ];
+  for (const s of sueltos) {
+    const d = ts(ANIO, MES, s.dia);
+    push(byIdx(s.idx), "permiso", s.cod, d, d);
+  }
+
+  // Un mismo conductor con DOS permisos sueltos no solapados (caso realista).
+  push(byIdx(52), "permiso", "AP", ts(ANIO, MES, 4), ts(ANIO, MES, 4));
+  push(byIdx(52), "permiso", "PS", ts(ANIO, MES, 25), ts(ANIO, MES, 25));
+
+  const idsTotales = new Set(totales.map((t) => byIdx(t.idx).id));
+  return { ausencias, idsTotales };
+}
+
+/** ASSERT de invariantes de las ausencias sembradas (espejo de los callables B32.1). */
+function checkAusencias(ausencias, conductores) {
+  const idsCond = new Set(conductores.map((c) => c.id));
+  const porConductor = new Map();
+  for (const a of ausencias) {
+    if (!idsCond.has(a.conductorId)) {
+      throw new Error(`AUSENCIA ROTA: ${a.id} referencia conductor '${a.conductorId}' inexistente.`);
+    }
+    const ini = a.doc.fechaInicio.toDate().getTime();
+    const fin = a.doc.fechaFin.toDate().getTime();
+    if (ini > fin) throw new Error(`AUSENCIA ROTA: ${a.id} tiene fechaInicio > fechaFin.`);
+    const prev = porConductor.get(a.conductorId) ?? [];
+    for (const [pIni, pFin, pId] of prev) {
+      if (ini <= pFin && pIni <= fin) {
+        throw new Error(`AUSENCIAS SOLAPADAS: ${a.id} y ${pId} (conductor ${a.conductorId}).`);
+      }
+    }
+    prev.push([ini, fin, a.id]);
+    porConductor.set(a.conductorId, prev);
+  }
+}
+
 /** ASSERT de coherencia de IDs + estadísticas de cobertura/versatilidad. */
-function checkCoherencia(tipos, conductores, lineas) {
+function checkCoherencia(tipos, conductores, lineas, idsAusentesTotales = new Set()) {
   // B30: cada lineaId de cada tipo de turno DEBE resolver a una línea sembrada
   // (paralelo al assert conductores↔turnos de abajo). Si algún turno apunta a
   // una línea inexistente, abortamos antes de escribir nada.
@@ -449,7 +550,9 @@ function checkCoherencia(tipos, conductores, lineas) {
           `COHERENCIA ROTA: conductor ${c.id} referencia tipo '${code}' que no existe en los tipos sembrados.`,
         );
       }
-      cobertura.set(code, cobertura.get(code) + 1);
+      // B32.3: la cobertura se mide sobre conductores DISPONIBLES (buildRequest
+      // excluye del pool a los ausentes el mes completo).
+      if (!idsAusentesTotales.has(c.id)) cobertura.set(code, cobertura.get(code) + 1);
     }
     minVers = Math.min(minVers, perm.length);
     maxVers = Math.max(maxVers, perm.length);
@@ -496,7 +599,7 @@ async function limpiarAmbito(db, auth) {
   }
   // Firestore: docs por colección dentro del centro/tenant de prueba.
   const dels = [];
-  for (const col of ["tipos_turno", "conductores", "lineas"]) {
+  for (const col of ["tipos_turno", "conductores", "lineas", "ausencias"]) {
     const snap = await db.collection(col).where("centroId", "==", CENTRO_ID).get();
     for (const d of snap.docs) dels.push((b) => b.delete(d.ref));
   }
@@ -516,7 +619,9 @@ async function sembrar(db, auth, FieldValue, Timestamp) {
   const catalogo = buildCatalogo();
   const tipos = buildTipos(catalogo, FieldValue);
   const conductores = buildConductores(catalogo, FieldValue, Timestamp);
-  const stats = checkCoherencia(tipos, conductores, lineas);
+  const { ausencias, idsTotales } = buildAusencias(conductores, FieldValue, Timestamp);
+  checkAusencias(ausencias, conductores);
+  const stats = checkCoherencia(tipos, conductores, lineas, idsTotales);
 
   // Tenant.
   const tenantDoc = {
@@ -605,6 +710,7 @@ async function sembrar(db, auth, FieldValue, Timestamp) {
     ...conductores.map(
       (c) => (b) => b.set(db.collection("conductores").doc(c.id), c.doc),
     ),
+    ...ausencias.map((a) => (b) => b.set(db.collection("ausencias").doc(a.id), a.doc)),
   ];
   await commitInChunks(db, ops);
 
@@ -613,6 +719,8 @@ async function sembrar(db, auth, FieldValue, Timestamp) {
     nLineas: lineas.length,
     nTipos: tipos.length,
     nConductores: conductores.length,
+    nAusencias: ausencias.length,
+    nAusentesTotales: idsTotales.size,
     stats,
   };
 }
@@ -625,6 +733,9 @@ function printResumen(target, r) {
   console.log(`  líneas:        ${r.nLineas} (con colores: lin_1..lin_5)`);
   console.log(`  tipos turno:   ${r.nTipos}  (todos con lineaId → su línea)`);
   console.log(`  conductores:   ${r.nConductores}`);
+  console.log(
+    `  ausencias:     ${r.nAusencias} (${r.nAusentesTotales} conductores ausentes el mes completo → fuera del pool; resto permisos de 1 día)`,
+  );
   console.log(`  convenio:      sí (singleton id=${CENTRO_ID})`);
   console.log(`  cuadrante:     ${CUADRANTE_ID}  (borrador, estadoGeneracion=idle)`);
   console.log(`  festivos:      ninguno (septiembre 2026 no tiene festivo nacional)`);
@@ -634,7 +745,7 @@ function printResumen(target, r) {
   console.log(`  uid:           ${r.jefeUid}`);
   console.log("\n  --- Coherencia / cobertura (assert OK) ---");
   console.log(
-    `  cobertura por turno: min=${r.stats.minCobertura} max=${r.stats.maxCobertura} avg=${r.stats.avgCobertura} (mínimo exigido ≥4)`,
+    `  cobertura por turno (solo disponibles): min=${r.stats.minCobertura} max=${r.stats.maxCobertura} avg=${r.stats.avgCobertura} (mínimo exigido ≥4)`,
   );
   console.log(
     `  versatilidad/conductor: min=${r.stats.minVersatilidad} max=${r.stats.maxVersatilidad} avg=${r.stats.avgVersatilidad}`,

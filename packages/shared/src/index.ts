@@ -9,3 +9,4 @@ export {
 } from './validators/cif';
 export type { CIFValidationResult, CIFInvalidReason } from './validators/cif';
 export { resolverTipoDia } from './calendar/resolverTipoDia';
+export { expandirAusenciaEnMes } from './calendar/expandirAusenciaEnMes';
