@@ -19,7 +19,9 @@ import { resetConductoresB22, resetCuadranteB33 } from './helpers/seed';
  * B36.1: la rejilla PINTA las ausencias (D6.29) y el menú Exportar descarga el
  * cuadrante en CSV (BOM + `;`, `D` en descanso, gana el turno sobre la
  * ausencia). B36.2: Excel (exceljs) con paneles fijos, hoja Resumen y estilos;
- * se parsea con exceljs en Node para validar el contenido.
+ * se parsea con exceljs en Node para validar el contenido. B36.3: PDF A4/A3
+ * (jspdf + autotable); se valida la descarga, la firma %PDF y el número de
+ * páginas (el contenido va comprimido; la legibilidad se revisa en papel).
  */
 
 const MES = '2026-09';
@@ -313,5 +315,44 @@ test.describe('Calendario · Exportar Excel (B36.2)', () => {
     expect(pares.get('Asignaciones (turnos)')).toBe(1);
     expect(pares.get('Días de ausencia (sin turno)')).toBe(1);
     expect(String(pares.get('Fichero generado'))).toMatch(/por Albius$/);
+  });
+});
+
+test.describe('Calendario · Exportar PDF (B36.3)', () => {
+  test.beforeEach(async ({ page }) => {
+    resetConductoresB22();
+    resetCuadranteB33('borrador');
+    await irAlCalendario(page);
+  });
+
+  /** Nº de objetos /Type /Page (sin contar /Pages) de un PDF. */
+  const contarPaginas = (pdf: Buffer): number =>
+    (pdf.toString('latin1').match(/\/Type\s*\/Page(?![s\w])/g) ?? []).length;
+
+  test('PDF A4: descarga, firma %PDF y una página con 3 conductores', async ({
+    page,
+  }) => {
+    await asignar(page, 'García', 5, 'M-LARGO');
+    await page.getByRole('button', { name: 'Exportar' }).click();
+    const item = page.getByRole('menuitem', { name: /^PDF A4/ });
+    await expect(item).toBeVisible();
+    const [download] = await Promise.all([page.waitForEvent('download'), item.click()]);
+    expect(download.suggestedFilename()).toBe('cuadrante_centro-test_2026-09.pdf');
+    const ruta = await download.path();
+    expect(ruta).not.toBeNull();
+    const pdf = readFileSync(ruta!);
+    expect(pdf.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+    expect(pdf.length).toBeGreaterThan(3000);
+    expect(contarPaginas(pdf)).toBe(1);
+  });
+
+  test('PDF A3: nombre con sufijo A3 y descarga válida', async ({ page }) => {
+    await page.getByRole('button', { name: 'Exportar' }).click();
+    const item = page.getByRole('menuitem', { name: /^PDF A3/ });
+    const [download] = await Promise.all([page.waitForEvent('download'), item.click()]);
+    expect(download.suggestedFilename()).toBe('cuadrante_centro-test_2026-09_A3.pdf');
+    const pdf = readFileSync((await download.path())!);
+    expect(pdf.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+    expect(contarPaginas(pdf)).toBe(1);
   });
 });

@@ -1,9 +1,10 @@
 /**
  * Exportación del cuadrante (B36) — helpers PUROS de formato + la descarga en
  * navegador. Sin React. Sin dependencias: B36.1 entrega CSV. Excel (B36.2,
- * `lib/exportarExcel.ts`) y PDF (B36.3) viven en módulos hermanos cargados con
- * `import()` al pulsar, para no tocar el primer paint; este módulo sigue sin
- * deps y guarda lo común (metadatos, nombre de fichero, tinte, descarga).
+ * `lib/exportarExcel.ts`) y PDF (B36.3, `lib/exportarPdf.ts`) viven en módulos
+ * hermanos cargados con `import()` al pulsar, para no tocar el primer paint;
+ * este módulo sigue sin deps y guarda lo común (metadatos, nombre de fichero,
+ * tinte, descarga).
  *
  * La rejilla viene de `construirRejilla` (lib/calendario, con las ausencias ya
  * cruzadas, D6.29). Regla de celda (B36.1): código del turno > etiqueta de

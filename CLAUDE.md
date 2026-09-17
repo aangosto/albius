@@ -106,7 +106,7 @@ Si propones algo que contradice un punto de aquí, primero levanta la mano para 
 - Hacer `git push`.
 - Borrar archivos.
 
-> Decisiones §10 aprobadas (registro): **Playwright** (B20, E2E de UI) y **vitest** (B27, primer testing unitario en `packages/shared`, D6.11) se añadieron como dependencias dev con OK explícito del usuario. **exceljs** (B36.2, Excel del cuadrante en `apps/web`, cargado con `import()` en chunk diferido) se añadió como dependencia de runtime con OK explícito; elegido sobre `xlsx` porque colorea celdas y fija paneles, y su paquete npm está mantenido.
+> Decisiones §10 aprobadas (registro): **Playwright** (B20, E2E de UI) y **vitest** (B27, primer testing unitario en `packages/shared`, D6.11) se añadieron como dependencias dev con OK explícito del usuario. **exceljs** (B36.2, Excel del cuadrante en `apps/web`, cargado con `import()` en chunk diferido) se añadió como dependencia de runtime con OK explícito; elegido sobre `xlsx` porque colorea celdas y fija paneles, y su paquete npm está mantenido. **jspdf + jspdf-autotable** (B36.3, PDF del cuadrante, mismo chunk diferido) con OK explícito; elegidos sobre pdfmake (~2 MB por las fuentes) y pdf-lib (sin layout de tablas).
 
 ## 11. Estado actual del proyecto
 

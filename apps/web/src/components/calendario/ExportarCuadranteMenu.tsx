@@ -1,5 +1,12 @@
 import { useState } from 'react';
-import { ChevronDown, Download, FileSpreadsheet, FileText, Loader2 } from 'lucide-react';
+import {
+  ChevronDown,
+  Download,
+  FileSpreadsheet,
+  FileText,
+  Loader2,
+  Printer,
+} from 'lucide-react';
 import { DropdownMenu } from 'radix-ui';
 import { Button } from '@/components/ui/button';
 import type { Cuadrante, Linea } from '@albius/shared';
@@ -12,19 +19,22 @@ import {
 } from '@/lib/exportar';
 
 /**
- * Menú "Exportar" del cuadrante (B36.1 + B36.2). Un solo punto de entrada
- * para los formatos: CSV (sin deps) y Excel (`exceljs`, cargado con `import()`
- * al pulsar para que no entre en el bundle inicial). El PDF (B36.3) se añade
- * como item nuevo en `FORMATOS`.
+ * Menú "Exportar" del cuadrante (B36.1 + B36.2 + B36.3). Un solo punto de
+ * entrada para los formatos: PDF A4 / A3 (`jspdf` + `jspdf-autotable`), Excel
+ * (`exceljs`) y CSV (sin deps). Las librerías se cargan con `import()` al
+ * pulsar para que no entren en el bundle inicial. El formato de página del
+ * PDF va como dos items planos (A4 para imprimir, A3): lo simple, sin
+ * submenú.
  *
  * Construido sobre el primitivo DropdownMenu que ya trae `radix-ui` (mismo
  * criterio que `MobileNavDrawer`: sin dependencia nueva, §10). Recibe la
  * rejilla YA construida (con ausencias, D6.29), el cuadrante (estado, KPIs,
  * fechas) y las líneas (leyenda); no hace I/O.
  *
- * Estado: CSV y Excel se exportan en CUALQUIER estado del cuadrante (trabajo
- * interno del jefe, no van al tablón). Las restricciones por estado son del
- * PDF (B36.3).
+ * Estado: los tres formatos se exportan en CUALQUIER estado del cuadrante.
+ * El PDF, si no está publicado/cerrado, lleva marca de agua "BORRADOR" en
+ * cada página (el jefe lo imprime para revisarlo en papel; la marca evita que
+ * acabe en el tablón por error).
  */
 
 export interface ExportarCuadranteMenuProps {
@@ -51,6 +61,32 @@ interface Formato {
 }
 
 const FORMATOS: Formato[] = [
+  {
+    id: 'pdf-a4',
+    label: 'PDF A4',
+    descripcion: 'Para imprimir y colgar. ~30 conductores por página.',
+    Icono: Printer,
+    ejecutar: async (ctx) => {
+      const { generarPdfCuadrante, MIME_PDF } = await import('@/lib/exportarPdf');
+      const bytes = generarPdfCuadrante({ ...ctx, formato: 'a4' });
+      descargarFichero(nombreFicheroCuadrante(ctx.meta, 'pdf'), bytes, MIME_PDF);
+    },
+  },
+  {
+    id: 'pdf-a3',
+    label: 'PDF A3',
+    descripcion: 'Mismo formato, letra mayor y más filas por página.',
+    Icono: Printer,
+    ejecutar: async (ctx) => {
+      const { generarPdfCuadrante, MIME_PDF } = await import('@/lib/exportarPdf');
+      const bytes = generarPdfCuadrante({ ...ctx, formato: 'a3' });
+      descargarFichero(
+        nombreFicheroCuadrante(ctx.meta, 'pdf').replace(/\.pdf$/, '_A3.pdf'),
+        bytes,
+        MIME_PDF,
+      );
+    },
+  },
   {
     id: 'excel',
     label: 'Excel (.xlsx)',

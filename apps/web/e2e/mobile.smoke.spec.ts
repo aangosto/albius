@@ -82,7 +82,7 @@ test('páginas del jefe sin overflow horizontal a 375px (incl. Festivos y Conven
   }
 });
 
-test('menú Exportar del Calendario a 375px (B36.1/B36.2)', async ({ page }) => {
+test('menú Exportar del Calendario a 375px (B36.1-B36.3)', async ({ page }) => {
   resetConductoresB22();
   resetCuadranteB33('borrador');
   await page.goto('/calendario');
@@ -96,6 +96,7 @@ test('menú Exportar del Calendario a 375px (B36.1/B36.2)', async ({ page }) => 
   const item = page.getByRole('menuitem', { name: /CSV/ });
   await expect(item).toBeVisible();
   await expect(page.getByRole('menuitem', { name: /^Excel/ })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: /^PDF A4/ })).toBeVisible();
   expect(await sinOverflowHorizontal(page), 'overflow con el menú abierto').toBe(true);
   await page.keyboard.press('Escape');
   await expect(item).toBeHidden();
