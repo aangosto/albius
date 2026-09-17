@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { resetConductoresB22, resetCuadranteB33 } from './helpers/seed';
 
@@ -13,6 +14,10 @@ import { resetConductoresB22, resetCuadranteB33 } from './helpers/seed';
  *
  * Validación híbrida B33.2: los avisos (habilitación, ausencia, descanso) NO
  * bloquean — el botón pasa a "… de todos modos".
+ *
+ * B36.1: la rejilla PINTA las ausencias (D6.29) y el menú Exportar descarga el
+ * cuadrante en CSV (BOM + `;`, `D` en descanso, gana el turno sobre la
+ * ausencia).
  */
 
 const MES = '2026-09';
@@ -150,5 +155,80 @@ test.describe('Calendario · solo lectura', () => {
     await expect(c).not.toHaveAttribute('role', 'button');
     await c.click();
     await expect(page.getByRole('dialog')).toHaveCount(0);
+  });
+});
+
+test.describe('Calendario · ausencias en la rejilla + Exportar CSV (B36.1)', () => {
+  test.beforeEach(async ({ page }) => {
+    resetConductoresB22();
+    resetCuadranteB33('borrador');
+    await irAlCalendario(page);
+  });
+
+  test('la celda del permiso muestra el código de la ausencia (no se ve libre)', async ({
+    page,
+  }) => {
+    const c = celda(page, 'Pérez', 10);
+    await expect(c).toHaveText('AP');
+    await expect(c).toHaveAttribute('title', 'Ausente: Permiso (AP)');
+    // El día siguiente sigue libre.
+    await expect(celda(page, 'Pérez', 11)).toHaveText('·');
+  });
+
+  test('turno + ausencia el mismo día: gana el turno, la ausencia queda en el tooltip', async ({
+    page,
+  }) => {
+    await celda(page, 'Pérez', 10).click();
+    const dialog = page.getByRole('dialog');
+    await elegirTipo(dialog, page, 'M-LARGO');
+    await dialog.getByRole('button', { name: 'Asignar de todos modos' }).click();
+    await expect(dialog).toBeHidden();
+    const c = celda(page, 'Pérez', 10);
+    await expect(c).toHaveText('M-LARGO');
+    await expect(c).toHaveAttribute('title', /Turno M-LARGO .* · Ausente: Permiso \(AP\)/);
+  });
+
+  test('Exportar CSV: descarga con BOM, `;`, D en descanso, turno y ausencia', async ({
+    page,
+  }) => {
+    await asignar(page, 'García', 5, 'M-LARGO');
+
+    await page.getByRole('button', { name: 'Exportar' }).click();
+    const item = page.getByRole('menuitem', { name: /CSV/ });
+    await expect(item).toBeVisible();
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      item.click(),
+    ]);
+    expect(download.suggestedFilename()).toBe('cuadrante_centro-test_2026-09.csv');
+
+    const ruta = await download.path();
+    expect(ruta).not.toBeNull();
+    const contenido = readFileSync(ruta!, 'utf8');
+    expect(contenido.startsWith('\uFEFF')).toBe(true);
+
+    const lineas = contenido.slice(1).split('\r\n');
+    expect(lineas[0]).toBe('Cuadrante;Centro Test');
+    expect(lineas[1]).toBe('Mes;09/2026');
+    expect(lineas[2]).toBe('Estado;borrador');
+    expect(lineas[3]).toMatch(/^Generado;\d{2}\/\d{2}\/2026 \d{2}:\d{2} por Albius$/);
+    expect(lineas[4]).toBe('');
+    // Cabecera de la tabla: 1/09/2026 es martes; 30 columnas de día.
+    const cabecera = lineas[5]!.split(';');
+    expect(cabecera[0]).toBe('Conductor');
+    expect(cabecera[1]).toBe('1 M');
+    expect(cabecera[2]).toBe('2 X');
+    expect(cabecera).toHaveLength(31);
+
+    const fila = (apellido: string) =>
+      lineas.find((l) => l.startsWith(apellido))!.split(';');
+    const garcia = fila('García, Ana');
+    expect(garcia[0]).toMatch(/^García, Ana \(.+\)$/); // con nº de empleado
+    expect(garcia[5]).toBe('M-LARGO');
+    expect(garcia[1]).toBe('D');
+    const perez = fila('Pérez, Luis');
+    expect(perez[10]).toBe('AP');
+    expect(perez[11]).toBe('D');
+    expect(perez).toHaveLength(31);
   });
 });

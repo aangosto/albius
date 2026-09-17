@@ -15,6 +15,7 @@ import {
 import { listarLineas } from '@/lib/services/lineas';
 import { listarTiposTurno } from '@/lib/services/tiposTurno';
 import {
+  descripcionAusencia,
   diasDelMes,
   duracionMinutos,
   fechaISOUTC,
@@ -28,7 +29,6 @@ import {
   expandirAusenciaEnMes,
   type Asignacion,
   type Ausencia,
-  type CategoriaAusencia,
   type Cuadrante,
   type Linea,
   type TipoAsignacion,
@@ -227,12 +227,6 @@ const ABREV_TIPO_ASIGNACION: Record<TipoAsignacion, string> = {
   baja: 'Baja',
 };
 
-const CATEGORIA_LABEL: Record<CategoriaAusencia, string> = {
-  vacaciones: 'Vacaciones',
-  baja: 'Baja',
-  permiso: 'Permiso',
-};
-
 function HorarioOk({
   año,
   mes,
@@ -288,7 +282,7 @@ function HorarioOk({
         turno,
         ausencia: au
           ? {
-              label: `${CATEGORIA_LABEL[au.categoria]}${au.codigo ? ` (${au.codigo})` : ''}`,
+              label: descripcionAusencia(au),
             }
           : undefined,
       };

@@ -12,6 +12,8 @@ import {
  *      items de NAV_BY_ROL; pulsar un item navega y cierra; Escape cierra.
  *   2. Ninguna página del jefe desborda horizontalmente el body (las tablas
  *      y la rejilla scrollean en su contenedor).
+ *   3. El menú Exportar del Calendario (B36.1) abre y cierra en móvil sin
+ *      desbordar.
  */
 
 test.use({ viewport: { width: 375, height: 667 } });
@@ -78,4 +80,22 @@ test('páginas del jefe sin overflow horizontal a 375px (incl. Festivos y Conven
     await page.waitForTimeout(500);
     expect(await sinOverflowHorizontal(page), `overflow en ${ruta}`).toBe(true);
   }
+});
+
+test('menú Exportar del Calendario a 375px (B36.1)', async ({ page }) => {
+  resetConductoresB22();
+  resetCuadranteB33('borrador');
+  await page.goto('/calendario');
+  await expect(page.getByRole('heading', { name: 'Calendario' })).toBeVisible();
+  await page.locator('#periodo-calendario').fill('2026-09');
+  await expect(page.getByText(/3 conductores/)).toBeVisible();
+
+  const boton = page.getByRole('button', { name: 'Exportar' });
+  await expect(boton).toBeVisible();
+  await boton.click();
+  const item = page.getByRole('menuitem', { name: /CSV/ });
+  await expect(item).toBeVisible();
+  expect(await sinOverflowHorizontal(page), 'overflow con el menú abierto').toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(item).toBeHidden();
 });

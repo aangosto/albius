@@ -22,6 +22,7 @@ import NoAutorizadoView from '@/components/shared/NoAutorizadoView';
 import EditarCeldaDialog, {
   type CeldaTarget,
 } from '@/components/calendario/EditarCeldaDialog';
+import ExportarCuadranteMenu from '@/components/calendario/ExportarCuadranteMenu';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   cuadranteIdDe,
@@ -29,50 +30,49 @@ import {
   obtenerCuadrante,
 } from '@/lib/services/cuadrantes';
 import { listarAusencias } from '@/lib/services/ausencias';
+import { obtenerCentro } from '@/lib/services/centros';
 import { listarConductores } from '@/lib/services/conductores';
 import { obtenerConvenio } from '@/lib/services/convenio';
 import { listarLineas } from '@/lib/services/lineas';
 import { listarTiposTurno } from '@/lib/services/tiposTurno';
 import {
-  diaDelMesUTC,
-  diasDelMes,
+  construirRejilla,
   fechaISODia,
   jornadaDeAsignacion,
-  textoSobreColor,
+  type CeldaRejilla,
   type DiaColumna,
+  type FilaRejilla,
 } from '@/lib/calendario';
 import { cn } from '@/lib/utils';
-import {
-  expandirAusenciaEnMes,
-  type Asignacion,
-  type Ausencia,
-  type Conductor,
-  type Convenio,
-  type Cuadrante,
-  type Linea,
-  type TipoAsignacion,
-  type TipoTurno,
+import type {
+  Asignacion,
+  Ausencia,
+  Centro,
+  Conductor,
+  Convenio,
+  Cuadrante,
+  Linea,
+  TipoTurno,
 } from '@albius/shared';
 
 /**
- * Vista CALENDARIO del cuadrante (B30.3 + edición manual B33.2).
+ * Vista CALENDARIO del cuadrante (B30.3 + edición manual B33.2 + B36.1).
  *
  * Rejilla conductor×día del mes, cada turno coloreado por su LÍNEA (linea.color).
  * Desde B33.2 es la HERRAMIENTA DE TRABAJO del jefe: en un cuadrante en
  * BORRADOR cada celda es clicable y abre `EditarCeldaDialog` (asignar / cambiar
  * / quitar turno). Publicado o cerrado → solo lectura con el motivo visible.
  *
- * Cambios B33.2 respecto a B30.3:
- *   - Las filas salen de TODOS los conductores del centro (no solo de los que
- *     tienen asignaciones): un conductor libre todo el mes aparece con fila
- *     vacía para poder darle turno.
- *   - La rejilla se muestra en cuanto EXISTE el cuadrante (antes exigía
- *     estadoGeneracion==='completado'): un cuadrante nunca generado se rellena
- *     a mano sobre la rejilla vacía.
- *   - La celda guarda la `Asignacion` completa (su id es necesario para mutar).
- *   - Carga además ausencias y convenio para los avisos del dialog.
- *   - Tras cada mutación se recargan solo las asignaciones (sin desmontar la
- *     rejilla).
+ * Cambios B36.1 respecto a B33.2:
+ *   - La rejilla la construye `construirRejilla` (lib/calendario, puro),
+ *     compartido con las exportaciones (CSV aquí; Excel y PDF después).
+ *   - Las AUSENCIAS SE PINTAN en la celda (D6.29; antes solo alimentaban el
+ *     aviso del dialog y un conductor de vacaciones se veía libre). Etiqueta =
+ *     `codigo` de la empresa (V, B, AP) o la categoría; estilo distinto al de
+ *     un turno. Si el día tiene turno Y ausencia, GANA EL TURNO en la celda y
+ *     la ausencia va al tooltip/aria-label (con un contorno discontinuo).
+ *   - Botón "Exportar" (menú) con el cuadrante completo en CSV. Carga además
+ *     el centro (nombre para la cabecera del fichero).
  *
  * ⚠️ Fechas en UTC en todo (helpers de lib/calendario, D6.22).
  *
@@ -106,6 +106,7 @@ interface Datos {
   lineas: Linea[];
   ausencias: Ausencia[];
   convenio: Convenio | null;
+  centro: Centro | null;
 }
 
 function CalendarioPageAuthorized({
@@ -135,16 +136,32 @@ function CalendarioPageAuthorized({
         return;
       }
       setCuadrante(cua);
-      const [asignaciones, conductores, tipos, lineas, ausencias, convenio] =
-        await Promise.all([
-          listarAsignaciones(tenantId, id),
-          listarConductores(tenantId, centroId!),
-          listarTiposTurno(tenantId, centroId!),
-          listarLineas(tenantId, centroId!),
-          listarAusencias(tenantId, centroId!),
-          obtenerConvenio(centroId!),
-        ]);
-      setDatos({ asignaciones, conductores, tipos, lineas, ausencias, convenio });
+      const [
+        asignaciones,
+        conductores,
+        tipos,
+        lineas,
+        ausencias,
+        convenio,
+        centro,
+      ] = await Promise.all([
+        listarAsignaciones(tenantId, id),
+        listarConductores(tenantId, centroId!),
+        listarTiposTurno(tenantId, centroId!),
+        listarLineas(tenantId, centroId!),
+        listarAusencias(tenantId, centroId!),
+        obtenerConvenio(centroId!),
+        obtenerCentro(centroId!),
+      ]);
+      setDatos({
+        asignaciones,
+        conductores,
+        tipos,
+        lineas,
+        ausencias,
+        convenio,
+        centro,
+      });
       setEstado('ok');
     } catch (err) {
       // Error EXPLÍCITO (no enmascarar como "0 asignaciones",
@@ -241,6 +258,7 @@ function CalendarioPageAuthorized({
           mes={mes}
           datos={datos}
           cuadrante={cuadrante}
+          centroId={centroId}
           onMutacion={recargarAsignaciones}
         />
       )}
@@ -275,33 +293,6 @@ function SinCuadrante({ año, mes }: { año: number; mes: number }) {
 //  Rejilla
 // ============================================================================
 
-interface Celda {
-  asignacion: Asignacion;
-  texto: string;
-  /** Color de fondo (HEX de la línea) o undefined → neutro. */
-  bg?: string;
-  /** Color de texto legible sobre bg. */
-  fg: string;
-  title: string;
-}
-
-interface FilaConductor {
-  conductorId: string;
-  conductor?: Conductor;
-  label: string;
-  numeroEmpleado?: string;
-  porDia: Map<number, Celda>;
-}
-
-const ABREV_TIPO_ASIGNACION: Record<TipoAsignacion, string> = {
-  turno: 'T',
-  reserva_presencial: 'R.P',
-  reserva_localizable: 'R.L',
-  libre: '·',
-  vacaciones: 'VAC',
-  baja: 'BAJA',
-};
-
 const ESTADO_LECTURA_MOTIVO: Record<Cuadrante['estado'], string | null> = {
   borrador: null,
   publicado:
@@ -314,114 +305,43 @@ function CalendarioOk({
   mes,
   datos,
   cuadrante,
+  centroId,
   onMutacion,
 }: {
   año: number;
   mes: number;
   datos: Datos;
   cuadrante: Cuadrante;
+  centroId: string;
   onMutacion: () => Promise<void>;
 }) {
   const [celdaSel, setCeldaSel] = useState<CeldaTarget | null>(null);
   const editable = cuadrante.estado === 'borrador';
 
-  const { dias, filas } = useMemo(() => {
-    const dias = diasDelMes(año, mes);
-    const tiposById = new Map(datos.tipos.map((t) => [t.id, t]));
-    const lineasById = new Map(datos.lineas.map((l) => [l.id, l]));
-    const conductoresById = new Map(datos.conductores.map((c) => [c.id, c]));
-
-    const celdaDe = (a: Asignacion): Celda => {
-      const tipo = a.tipoTurnoId ? tiposById.get(a.tipoTurnoId) : undefined;
-      const linea = tipo?.lineaId ? lineasById.get(tipo.lineaId) : undefined;
-      const texto = tipo?.codigo ?? ABREV_TIPO_ASIGNACION[a.tipoAsignacion];
-      const bg = linea?.color;
-      return {
-        asignacion: a,
-        texto,
-        bg,
-        fg: textoSobreColor(bg),
-        title: [
-          tipo ? `Turno ${tipo.codigo}` : a.tipoAsignacion,
-          `${a.horaInicio}–${a.horaFin}`,
-          linea ? `Línea ${linea.codigo} — ${linea.nombre}` : 'Sin línea',
-        ].join(' · '),
-      };
-    };
-
-    // conductorId -> (día del mes -> celda). R1 la garantiza el backend
-    // (assertConductorLibreEnFecha, B33.2); "primero gana" solo como defensa.
-    const porConductor = new Map<string, Map<number, Celda>>();
-    // Todos los conductores del centro (fila vacía si no tienen asignaciones).
-    for (const c of datos.conductores) porConductor.set(c.id, new Map());
-    for (const a of datos.asignaciones) {
-      const dia = diaDelMesUTC(a.fecha);
-      let m = porConductor.get(a.conductorId);
-      if (!m) {
-        m = new Map();
-        porConductor.set(a.conductorId, m);
-      }
-      if (!m.has(dia)) m.set(dia, celdaDe(a));
-    }
-
-    const filas: FilaConductor[] = [...porConductor.entries()]
-      .map(([conductorId, porDia]) => {
-        const c = conductoresById.get(conductorId);
-        return {
-          conductorId,
-          conductor: c,
-          label: c ? `${c.apellidos}, ${c.nombre}` : conductorId,
-          numeroEmpleado: c?.numeroEmpleado,
-          porDia,
-        };
-      })
-      .sort((a, b) => a.label.localeCompare(b.label, 'es'));
-
-    return { dias, filas };
-  }, [año, mes, datos]);
-
-  // conductorId -> (fechaISO -> Ausencia) para el aviso "ausente ese día".
-  const ausenciaPorDia = useMemo(() => {
-    const idx = new Map<string, Map<string, Ausencia>>();
-    for (const au of datos.ausencias) {
-      const dias = expandirAusenciaEnMes(
-        au.fechaInicio.toDate(),
-        au.fechaFin.toDate(),
-        año,
-        mes,
-      );
-      if (dias.length === 0) continue;
-      let m = idx.get(au.conductorId);
-      if (!m) {
-        m = new Map();
-        idx.set(au.conductorId, m);
-      }
-      for (const d of dias) m.set(d, au);
-    }
-    return idx;
-  }, [datos.ausencias, año, mes]);
+  // Rejilla compartida con las exportaciones (B36.1), ausencias ya cruzadas.
+  const rejilla = useMemo(
+    () => construirRejilla(datos, año, mes),
+    [datos, año, mes],
+  );
+  const { dias, filas } = rejilla;
 
   const abrirCelda = useCallback(
-    (fila: FilaConductor, dia: number) => {
+    (fila: FilaRejilla, dia: number) => {
       if (!editable || !fila.conductor) return;
       const fechaISO = fechaISODia(año, mes, dia);
-      const etiquetaDe = (c: Celda) => c.texto;
-      const ant = fila.porDia.get(dia - 1);
-      const sig = fila.porDia.get(dia + 1);
+      const celda = fila.celdas.get(dia);
+      const ant = fila.celdas.get(dia - 1)?.turno;
+      const sig = fila.celdas.get(dia + 1)?.turno;
       setCeldaSel({
         conductor: fila.conductor,
         fechaISO,
-        asignacion: fila.porDia.get(dia)?.asignacion,
-        ausencia: ausenciaPorDia.get(fila.conductorId)?.get(fechaISO),
-        anterior: ant
-          ? jornadaDeAsignacion(ant.asignacion, etiquetaDe(ant))
-          : undefined,
-        siguiente: sig
-          ? jornadaDeAsignacion(sig.asignacion, etiquetaDe(sig))
-          : undefined,
+        asignacion: celda?.turno?.asignacion,
+        ausencia: celda?.ausencia?.ausencia,
+        anterior: ant ? jornadaDeAsignacion(ant.asignacion, ant.texto) : undefined,
+        siguiente: sig ? jornadaDeAsignacion(sig.asignacion, sig.texto) : undefined,
       });
     },
-    [editable, año, mes, ausenciaPorDia],
+    [editable, año, mes],
   );
 
   const motivoLectura = ESTADO_LECTURA_MOTIVO[cuadrante.estado];
@@ -449,7 +369,18 @@ function CalendarioOk({
           {filas.length} conductores · {datos.asignaciones.length} asignaciones ·{' '}
           {mesLabel(año, mes)} · {cuadrante.estado}
         </p>
-        <LeyendaLineas lineas={datos.lineas} />
+        <div className="flex flex-wrap items-center gap-3">
+          <LeyendaLineas lineas={datos.lineas} />
+          <ExportarCuadranteMenu
+            rejilla={rejilla}
+            meta={{
+              centroNombre: datos.centro?.nombre ?? centroId,
+              año,
+              mes,
+              estado: cuadrante.estado,
+            }}
+          />
+        </div>
       </div>
       {filas.length === 0 ? (
         <Alert>
@@ -497,6 +428,15 @@ function LeyendaLineas({ lineas }: { lineas: Linea[] }) {
   );
 }
 
+/** Descripción accesible de una celda (tooltip + aria-label). */
+function descripcionCelda(celda: CeldaRejilla | undefined): string {
+  if (!celda) return 'libre';
+  const partes: string[] = [];
+  if (celda.turno) partes.push(celda.turno.title);
+  if (celda.ausencia) partes.push(`Ausente: ${celda.ausencia.descripcion}`);
+  return partes.join(' · ');
+}
+
 function RejillaTabla({
   dias,
   filas,
@@ -504,9 +444,9 @@ function RejillaTabla({
   onCelda,
 }: {
   dias: DiaColumna[];
-  filas: FilaConductor[];
+  filas: FilaRejilla[];
   editable: boolean;
-  onCelda: (fila: FilaConductor, dia: number) => void;
+  onCelda: (fila: FilaRejilla, dia: number) => void;
 }) {
   return (
     <div className="overflow-auto rounded-md border max-h-[calc(100vh-16rem)]">
@@ -548,12 +488,13 @@ function RejillaTabla({
                   )}
                 </td>
                 {dias.map((d) => {
-                  const celda = f.porDia.get(d.dia);
+                  const celda = f.celdas.get(d.dia);
+                  const descripcion = descripcionCelda(celda);
                   const interaccion = clicable
                     ? {
                         role: 'button' as const,
                         tabIndex: 0,
-                        'aria-label': `${f.label}, día ${d.dia}: ${celda ? celda.title : 'libre'}`,
+                        'aria-label': `${f.label}, día ${d.dia}: ${descripcion}`,
                         onClick: () => onCelda(f, d.dia),
                         onKeyDown: (e: KeyboardEvent) => {
                           if (e.key === 'Enter' || e.key === ' ') {
@@ -563,19 +504,48 @@ function RejillaTabla({
                         },
                       }
                     : {};
-                  if (!celda) {
+                  const turno = celda?.turno;
+                  if (turno) {
+                    // Turno (gana sobre la ausencia, que va al tooltip y se
+                    // señala con un contorno discontinuo).
                     return (
                       <td
                         key={d.dia}
                         {...interaccion}
+                        title={descripcion}
                         className={cn(
-                          'border-b border-l text-center text-muted-foreground/40',
-                          d.esFinde && 'bg-muted/30',
+                          'border-b border-l px-0.5 py-1 text-center text-xs font-medium',
+                          !turno.bg && 'bg-muted text-foreground',
+                          celda?.ausencia &&
+                            'outline-1 outline-dashed -outline-offset-2 outline-foreground/70',
+                          clicable &&
+                            'cursor-pointer hover:brightness-110 hover:ring-2 hover:ring-inset hover:ring-ring focus-visible:outline-2',
+                        )}
+                        style={
+                          turno.bg
+                            ? { backgroundColor: turno.bg, color: turno.fg }
+                            : undefined
+                        }
+                      >
+                        {turno.texto}
+                      </td>
+                    );
+                  }
+                  if (celda?.ausencia) {
+                    // Ausencia sin turno: NO es un día libre (D6.29). Estilo
+                    // propio, sin color de línea: es otra cosa que un turno.
+                    return (
+                      <td
+                        key={d.dia}
+                        {...interaccion}
+                        title={descripcion}
+                        className={cn(
+                          'border-b border-l bg-muted/60 px-0.5 py-1 text-center text-xs italic text-muted-foreground',
                           clicable &&
                             'cursor-pointer hover:bg-accent hover:text-accent-foreground focus-visible:outline-2',
                         )}
                       >
-                        ·
+                        {celda.ausencia.etiqueta}
                       </td>
                     );
                   }
@@ -583,20 +553,14 @@ function RejillaTabla({
                     <td
                       key={d.dia}
                       {...interaccion}
-                      title={celda.title}
                       className={cn(
-                        'border-b border-l px-0.5 py-1 text-center text-xs font-medium',
-                        !celda.bg && 'bg-muted text-foreground',
+                        'border-b border-l text-center text-muted-foreground/40',
+                        d.esFinde && 'bg-muted/30',
                         clicable &&
-                          'cursor-pointer hover:brightness-110 hover:ring-2 hover:ring-inset hover:ring-ring focus-visible:outline-2',
+                          'cursor-pointer hover:bg-accent hover:text-accent-foreground focus-visible:outline-2',
                       )}
-                      style={
-                        celda.bg
-                          ? { backgroundColor: celda.bg, color: celda.fg }
-                          : undefined
-                      }
                     >
-                      {celda.texto}
+                      ·
                     </td>
                   );
                 })}

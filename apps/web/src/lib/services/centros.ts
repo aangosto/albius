@@ -22,7 +22,14 @@
  * tras mutación.
  */
 
-import { collection, getDocs, orderBy, query } from 'firebase/firestore';
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  orderBy,
+  query,
+} from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import {
   COLLECTIONS,
@@ -147,4 +154,14 @@ export async function listarCentros(): Promise<Centro[]> {
   const q = query(collection(db, COLLECTIONS.CENTROS), orderBy('nombre'));
   const snap = await getDocs(q);
   return snap.docs.map((d) => d.data() as Centro);
+}
+
+/**
+ * Lee UN centro por id (B36.1). Lo usa el jefe de tráfico para la cabecera de
+ * las exportaciones del cuadrante (nombre del centro); la regla `sameTenant`
+ * de /centros le permite leerlo. `null` si no existe.
+ */
+export async function obtenerCentro(centroId: string): Promise<Centro | null> {
+  const snap = await getDoc(doc(db, COLLECTIONS.CENTROS, centroId));
+  return snap.exists() ? (snap.data() as Centro) : null;
 }

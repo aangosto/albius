@@ -1,6 +1,7 @@
 /**
- * Helpers PUROS de la vista Calendario (B30.3) — fechas en UTC y contraste de
- * color. Sin I/O, sin deps de React.
+ * Helpers PUROS de la vista Calendario (B30.3) — fechas en UTC, contraste de
+ * color y, desde B36.1, la construcción de la rejilla conductor×día compartida
+ * con las exportaciones. Sin I/O, sin deps de React.
  *
  * ⚠️ UTC INNEGOCIABLE: el seed y el optimizador escriben las fechas de las
  * asignaciones a medianoche UTC, y se leen en UTC. TODO el manejo de fechas de
@@ -9,11 +10,15 @@
  * en el día equivocado.
  */
 import type { Timestamp } from 'firebase/firestore';
-import type {
-  Asignacion,
-  CategoriaAusencia,
-  Conductor,
-  TipoTurno,
+import {
+  expandirAusenciaEnMes,
+  type Asignacion,
+  type Ausencia,
+  type CategoriaAusencia,
+  type Conductor,
+  type Linea,
+  type TipoAsignacion,
+  type TipoTurno,
 } from '@albius/shared';
 
 // Índice = getUTCDay() (0=domingo … 6=sábado).
@@ -241,4 +246,213 @@ export function jornadaDeAsignacion(
     horaFin: a.horaFin,
     etiqueta,
   };
+}
+
+// ============================================================================
+//  REJILLA CONDUCTOR × DÍA (B36.1) — helper puro compartido
+// ============================================================================
+//
+// Construye la rejilla del mes que pinta el Calendario y que exportan CSV /
+// Excel / PDF (B36). Sin React, sin I/O. Cruza SIEMPRE las ausencias (D6.29):
+// una celda sin turno y con ausencia NO es un día libre. Si un día tiene turno
+// Y ausencia (la edición manual lo permite con aviso, D6.23), la celda lleva
+// las dos y quien pinta decide — regla B36.1: GANA EL TURNO (es lo que esa
+// persona va a hacer de verdad) y la ausencia queda en el tooltip.
+
+/** Etiqueta de cada categoría de ausencia (cuando no hay `codigo`). */
+export const CATEGORIA_AUSENCIA_LABEL: Record<CategoriaAusencia, string> = {
+  vacaciones: 'Vacaciones',
+  baja: 'Baja',
+  permiso: 'Permiso',
+};
+
+/** Abreviatura de un tipo de asignación sin tipo de turno (personalizada). */
+export const ABREV_TIPO_ASIGNACION: Record<TipoAsignacion, string> = {
+  turno: 'T',
+  reserva_presencial: 'R.P',
+  reserva_localizable: 'R.L',
+  libre: '·',
+  vacaciones: 'VAC',
+  baja: 'BAJA',
+};
+
+/**
+ * Texto de una celda de DESCANSO (sin turno ni ausencia) en las exportaciones.
+ * Decisión B36.1: `D`, no en blanco — en papel una celda vacía se lee como
+ * error, y es lo que hacen los cuadrantes reales de TUCARSA. En pantalla el
+ * Calendario sigue usando el punto tenue.
+ */
+export const TEXTO_DESCANSO_EXPORT = 'D';
+
+export interface CeldaTurno {
+  asignacion: Asignacion;
+  /** Código del tipo de turno o abreviatura del tipo de asignación. */
+  texto: string;
+  /** Color de fondo (HEX de la línea) o undefined → neutro. */
+  bg?: string;
+  /** Color de texto legible sobre bg. */
+  fg: string;
+  /** Descripción legible (turno · horario · línea). */
+  title: string;
+}
+
+export interface CeldaAusencia {
+  ausencia: Ausencia;
+  /** `codigo` de la empresa si existe (V, B, AP…); si no, la categoría. */
+  etiqueta: string;
+  /** Descripción legible: "Permiso (AP)". */
+  descripcion: string;
+}
+
+export interface CeldaRejilla {
+  turno?: CeldaTurno;
+  ausencia?: CeldaAusencia;
+}
+
+export interface FilaRejilla {
+  conductorId: string;
+  /** undefined si la asignación apunta a un conductor que ya no está en el centro. */
+  conductor?: Conductor;
+  /** "Apellidos, Nombre" (o el id si no se resolvió el conductor). */
+  label: string;
+  numeroEmpleado?: string;
+  /** Día del mes (1..N) → celda. Solo los días con turno o ausencia. */
+  celdas: Map<number, CeldaRejilla>;
+}
+
+export interface Rejilla {
+  dias: DiaColumna[];
+  /** Filas ordenadas por apellidos, nombre (locale es). */
+  filas: FilaRejilla[];
+}
+
+export interface DatosRejilla {
+  asignaciones: Asignacion[];
+  conductores: Conductor[];
+  tipos: TipoTurno[];
+  lineas: Linea[];
+  ausencias: Ausencia[];
+}
+
+/** Etiqueta corta de una ausencia: código de la empresa o categoría. */
+export function etiquetaAusencia(
+  au: Pick<Ausencia, 'categoria' | 'codigo'>,
+): string {
+  return au.codigo?.trim() || CATEGORIA_AUSENCIA_LABEL[au.categoria];
+}
+
+/** "Permiso (AP)" / "Vacaciones". */
+export function descripcionAusencia(
+  au: Pick<Ausencia, 'categoria' | 'codigo'>,
+): string {
+  const cat = CATEGORIA_AUSENCIA_LABEL[au.categoria];
+  return au.codigo ? `${cat} (${au.codigo})` : cat;
+}
+
+/**
+ * Rejilla conductor × día del mes. Filas = TODOS los conductores del centro
+ * (fila sin celdas si está libre todo el mes) + los conductores huérfanos que
+ * aparezcan en asignaciones o ausencias. R1 la garantiza el backend
+ * (`assertConductorLibreEnFecha`); "primero gana" solo como defensa.
+ * Fechas en UTC (D6.22).
+ */
+export function construirRejilla(
+  datos: DatosRejilla,
+  año: number,
+  mes: number,
+): Rejilla {
+  const dias = diasDelMes(año, mes);
+  const tiposById = new Map(datos.tipos.map((t) => [t.id, t]));
+  const lineasById = new Map(datos.lineas.map((l) => [l.id, l]));
+  const conductoresById = new Map(datos.conductores.map((c) => [c.id, c]));
+
+  const celdaTurnoDe = (a: Asignacion): CeldaTurno => {
+    const tipo = a.tipoTurnoId ? tiposById.get(a.tipoTurnoId) : undefined;
+    const linea = tipo?.lineaId ? lineasById.get(tipo.lineaId) : undefined;
+    const texto = tipo?.codigo ?? ABREV_TIPO_ASIGNACION[a.tipoAsignacion];
+    const bg = linea?.color;
+    return {
+      asignacion: a,
+      texto,
+      bg,
+      fg: textoSobreColor(bg),
+      title: [
+        tipo ? `Turno ${tipo.codigo}` : a.tipoAsignacion,
+        `${a.horaInicio}–${a.horaFin}`,
+        linea ? `Línea ${linea.codigo} — ${linea.nombre}` : 'Sin línea',
+      ].join(' · '),
+    };
+  };
+
+  const porConductor = new Map<string, Map<number, CeldaRejilla>>();
+  const celdasDe = (conductorId: string): Map<number, CeldaRejilla> => {
+    let m = porConductor.get(conductorId);
+    if (!m) {
+      m = new Map();
+      porConductor.set(conductorId, m);
+    }
+    return m;
+  };
+  const celdaDe = (conductorId: string, dia: number): CeldaRejilla => {
+    const m = celdasDe(conductorId);
+    let c = m.get(dia);
+    if (!c) {
+      c = {};
+      m.set(dia, c);
+    }
+    return c;
+  };
+
+  for (const c of datos.conductores) celdasDe(c.id);
+
+  for (const a of datos.asignaciones) {
+    const celda = celdaDe(a.conductorId, diaDelMesUTC(a.fecha));
+    if (!celda.turno) celda.turno = celdaTurnoDe(a);
+  }
+
+  for (const au of datos.ausencias) {
+    const fechas = expandirAusenciaEnMes(
+      au.fechaInicio.toDate(),
+      au.fechaFin.toDate(),
+      año,
+      mes,
+    );
+    if (fechas.length === 0) continue;
+    const celdaAusencia: CeldaAusencia = {
+      ausencia: au,
+      etiqueta: etiquetaAusencia(au),
+      descripcion: descripcionAusencia(au),
+    };
+    for (const iso of fechas) {
+      const dia = Number(iso.slice(8, 10));
+      const celda = celdaDe(au.conductorId, dia);
+      // No-solape por conductor lo garantiza el backend (D6.20); defensa.
+      if (!celda.ausencia) celda.ausencia = celdaAusencia;
+    }
+  }
+
+  const filas: FilaRejilla[] = [...porConductor.entries()]
+    .map(([conductorId, celdas]) => {
+      const c = conductoresById.get(conductorId);
+      return {
+        conductorId,
+        conductor: c,
+        label: c ? `${c.apellidos}, ${c.nombre}` : conductorId,
+        numeroEmpleado: c?.numeroEmpleado,
+        celdas,
+      };
+    })
+    .sort((a, b) => a.label.localeCompare(b.label, 'es'));
+
+  return { dias, filas };
+}
+
+/**
+ * Texto de una celda para las exportaciones: código del turno (gana sobre la
+ * ausencia), etiqueta de la ausencia, o `D` si descansa.
+ */
+export function textoCeldaExport(celda: CeldaRejilla | undefined): string {
+  if (celda?.turno) return celda.turno.texto;
+  if (celda?.ausencia) return celda.ausencia.etiqueta;
+  return TEXTO_DESCANSO_EXPORT;
 }
