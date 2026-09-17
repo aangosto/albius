@@ -3,7 +3,15 @@ import { useAuth } from '@/contexts/AuthContext';
 import { NAV_BY_ROL, type NavItem } from '@/lib/navigation';
 import { cn } from '@/lib/utils';
 
-function NavSection({ title, items }: { title?: string; items: NavItem[] }) {
+function NavSection({
+  title,
+  items,
+  onNavigate,
+}: {
+  title?: string;
+  items: NavItem[];
+  onNavigate?: () => void;
+}) {
   return (
     <div className="py-2">
       {title && (
@@ -17,6 +25,7 @@ function NavSection({ title, items }: { title?: string; items: NavItem[] }) {
           <NavLink
             key={item.path}
             to={item.path}
+            onClick={onNavigate}
             className={({ isActive }) =>
               cn(
                 'flex items-center gap-3 px-6 py-2.5 text-sm border-l-[3px] transition-colors',
@@ -35,7 +44,13 @@ function NavSection({ title, items }: { title?: string; items: NavItem[] }) {
   );
 }
 
-export default function Sidebar() {
+/**
+ * Contenido de navegación (marca + secciones de NAV_BY_ROL del rol actual).
+ * Lo comparten el Sidebar de escritorio y el drawer móvil (B34.3): una sola
+ * fuente de items. `onNavigate` lo usa el drawer para cerrarse al pulsar un
+ * item; en escritorio no se pasa.
+ */
+export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const { user } = useAuth();
   // Defensa: ProtectedRoute garantiza que solo llegamos aquí con user.rol válido.
   if (!user?.rol) return null;
@@ -45,7 +60,7 @@ export default function Sidebar() {
   const showTitles = sections.length > 1;
 
   return (
-    <aside className="hidden md:flex flex-col w-60 text-white bg-[#0E2A47]">
+    <>
       <div className="px-6 py-6 text-2xl font-bold tracking-tight border-b border-white/10">
         albius<span className="text-[#2E75B6]">.</span>
       </div>
@@ -55,9 +70,20 @@ export default function Sidebar() {
             key={idx}
             title={showTitles ? section.title : undefined}
             items={section.items}
+            onNavigate={onNavigate}
           />
         ))}
       </nav>
+    </>
+  );
+}
+
+/** Sidebar fijo de escritorio (md+). En móvil no se renderiza: ahí va el
+ *  drawer del Topbar (MobileNavDrawer, B34.3). */
+export default function Sidebar() {
+  return (
+    <aside className="hidden md:flex flex-col w-60 text-white bg-[#0E2A47]">
+      <SidebarNav />
     </aside>
   );
 }

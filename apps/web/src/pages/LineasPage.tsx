@@ -116,7 +116,7 @@ function LineasPageAuthorized({
 
   return (
     <section className="space-y-4">
-      <header className="flex items-center justify-between">
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-3xl font-bold tracking-tight">Líneas</h1>
         <Button onClick={() => setCrearOpen(true)}>Nueva línea</Button>
       </header>
@@ -189,8 +189,8 @@ function FiltrosBar({
   setBusqueda,
 }: FiltrosBarProps) {
   return (
-    <div className="flex gap-3 items-end">
-      <div className="flex-1 space-y-1">
+    <div className="flex flex-wrap gap-3 items-end">
+      <div className="min-w-[12rem] flex-1 space-y-1">
         <Label>Buscar</Label>
         <Input
           value={busqueda}

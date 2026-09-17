@@ -178,8 +178,8 @@ function FiltrosBar({
   setBusqueda,
 }: FiltrosBarProps) {
   return (
-    <div className="flex gap-3 items-end">
-      <div className="flex-1 space-y-1">
+    <div className="flex flex-wrap gap-3 items-end">
+      <div className="min-w-[12rem] flex-1 space-y-1">
         <Label>Buscar</Label>
         <Input
           value={busqueda}

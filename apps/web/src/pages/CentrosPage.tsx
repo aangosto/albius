@@ -123,7 +123,7 @@ function CentrosPageAuthorized() {
 
   return (
     <section className="space-y-4">
-      <header className="flex items-center justify-between">
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-3xl font-bold tracking-tight">Centros</h1>
         <Button onClick={() => setCrearOpen(true)}>Nuevo centro</Button>
       </header>
@@ -211,7 +211,7 @@ function FiltrosBar({
   setBusqueda,
 }: FiltrosBarProps) {
   return (
-    <div className="flex gap-3 items-end">
+    <div className="flex flex-wrap gap-3 items-end">
       <div className="flex-1 space-y-1">
         <Label>Buscar</Label>
         <Input

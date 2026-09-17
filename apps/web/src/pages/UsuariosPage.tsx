@@ -149,7 +149,7 @@ function UsuariosPageAuthorized() {
 
   return (
     <section className="space-y-4">
-      <header className="flex items-center justify-between">
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-3xl font-bold tracking-tight">Usuarios</h1>
         <div className="flex gap-2">
           <Button onClick={() => setCrearTarget('jefe_trafico')}>

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { LogOut, Menu } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
+import MobileNavDrawer from '@/components/layout/MobileNavDrawer';
 import { useAuth } from '@/contexts/AuthContext';
 import { findNavItem, ROL_LABEL } from '@/lib/navigation';
 
@@ -31,6 +32,7 @@ export default function Topbar() {
   const { pathname } = useLocation();
   const [signingOut, setSigningOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const titulo = findNavItem(pathname)?.label ?? 'Albius';
   const nombre = user?.displayName ?? user?.email ?? '';
@@ -55,14 +57,18 @@ export default function Topbar() {
 
   return (
     <header className="bg-white border-b border-border h-16 flex items-center px-4 md:px-6 gap-4">
-      {/* TODO[mobile-drawer]: cablear a un drawer mobile (shadcn Sheet). */}
+      {/* B34.3: drawer de navegación móvil (Sidebar oculto en < md). */}
       <button
         type="button"
         aria-label="Abrir menú"
+        aria-haspopup="dialog"
+        aria-expanded={menuOpen}
+        onClick={() => setMenuOpen(true)}
         className="md:hidden inline-flex items-center justify-center size-9 rounded-md hover:bg-accent"
       >
         <Menu className="size-5" />
       </button>
+      <MobileNavDrawer open={menuOpen} onOpenChange={setMenuOpen} />
 
       <div className="flex-1 min-w-0">
         <div className="font-semibold text-lg leading-tight truncate">{titulo}</div>

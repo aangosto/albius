@@ -81,3 +81,16 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* B34.3 — drawer móvil (tw-animate-css NO está instalado; keyframe propio). */
+@keyframes drawer-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: none;
+  }
+}
+.animate-drawer-in {
+  animation: drawer-in 200ms ease-out;
+}
