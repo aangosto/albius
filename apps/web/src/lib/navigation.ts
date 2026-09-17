@@ -8,8 +8,10 @@ import {
   CalendarOff,
   CalendarRange,
   Clock,
+  Flag,
   LayoutDashboard,
   MapPin,
+  ScrollText,
   Star,
   UserCog,
   Users,
@@ -33,8 +35,8 @@ export interface NavSection {
 /**
  * Items de navegación del Sidebar, indexados por rol del dominio.
  *
- * super_admin ve dos secciones (Gobierno + Operativa). Los otros dos roles
- * tienen una sección sin título.
+ * super_admin ve dos secciones (Gobierno + Operativa); el jefe, dos desde
+ * B35.1 (Operativa + Configuración); el conductor, una sin título.
  */
 export const NAV_BY_ROL: Record<Rol, NavSection[]> = {
   super_admin: [
@@ -57,8 +59,11 @@ export const NAV_BY_ROL: Record<Rol, NavSection[]> = {
       ],
     },
   ],
+  // B35.1: dos secciones (11 items). Operativa = el día a día; Configuración =
+  // datos maestros que el optimizador lee (líneas, turnos, festivos, convenio).
   jefe_trafico: [
     {
+      title: 'Operativa',
       items: [
         { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
         { path: '/cuadrante', label: 'Cuadrante', icon: Calendar },
@@ -67,8 +72,15 @@ export const NAV_BY_ROL: Record<Rol, NavSection[]> = {
         { path: '/ausencias', label: 'Ausencias', icon: CalendarOff },
         { path: '/incidencias', label: 'Incidencias', icon: AlertTriangle },
         { path: '/intercambios', label: 'Intercambios', icon: ArrowLeftRight },
+      ],
+    },
+    {
+      title: 'Configuración',
+      items: [
         { path: '/lineas', label: 'Líneas', icon: Bus },
         { path: '/tipos-turno', label: 'Tipos de turno', icon: Clock },
+        { path: '/festivos', label: 'Festivos', icon: Flag },
+        { path: '/convenio', label: 'Convenio', icon: ScrollText },
       ],
     },
   ],

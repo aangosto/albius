@@ -94,3 +94,23 @@ export function resetMiHorarioB34(): void {
     stdio: 'pipe',
   });
 }
+
+/** Convenio de centro-test (B35.1): `con=false` lo borra; `con=true` deja uno conocido. */
+export function resetConvenioB35(con: boolean, cuadrante = false): void {
+  execFileSync(
+    'node',
+    [
+      path.join(SCRIPTS, 'reset-convenio-b35.mjs'),
+      ...(con ? ['--con'] : []),
+      ...(cuadrante ? ['--cuadrante'] : []),
+    ],
+    { stdio: 'pipe' },
+  );
+}
+
+/** Festivos de tenant-test (B35.1): 1 tenant-wide oficial + 1 del centro editable. */
+export function resetFestivosB35(): void {
+  execFileSync('node', [path.join(SCRIPTS, 'reset-festivos-b35.mjs')], {
+    stdio: 'pipe',
+  });
+}

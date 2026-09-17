@@ -33,7 +33,8 @@ import {
   listarAsignaciones,
   suscribirCuadrante,
 } from '@/lib/services/cuadrantes';
-import type { Asignacion, Cuadrante, EstadoGeneracion } from '@albius/shared';
+import { obtenerConvenio } from '@/lib/services/convenio';
+import type { Asignacion, Convenio, Cuadrante, EstadoGeneracion } from '@albius/shared';
 
 /**
  * Página del Cuadrante (B29 Fase C.4) — vista mínima pero real y ampliable.
@@ -89,9 +90,18 @@ function CuadrantePageAuthorized({
   const [accionCicloVida, setAccionCicloVida] = useState<AccionCuadrante | null>(
     null,
   );
+  const [convenio, setConvenio] = useState<Convenio | null>(null);
 
   const id = centroId ? cuadranteIdDe(centroId, año, mes) : null;
   const estadoGen: EstadoGeneracion = cuadrante?.estadoGeneracion ?? 'idle';
+
+  // --- Convenio del centro (B35.1): para avisar si cambió tras generar ---
+  useEffect(() => {
+    if (!centroId) return;
+    obtenerConvenio(centroId)
+      .then(setConvenio)
+      .catch((err) => console.error('[cuadrante] convenio error:', err));
+  }, [centroId]);
 
   // --- Suscripción reactiva al doc del cuadrante (onSnapshot) ---
   useEffect(() => {
@@ -221,6 +231,15 @@ function CuadrantePageAuthorized({
             onGenerar={handleGenerar}
             onAccion={setAccionCicloVida}
           />
+
+          {convenioDesactualizado(cuadrante, estadoGen, convenio) && (
+            <Alert data-testid="convenio-desactualizado">
+              <AlertDescription>
+                Generado con un convenio anterior. Vuelve a generar para
+                aplicar los cambios del convenio.
+              </AlertDescription>
+            </Alert>
+          )}
 
           {estadoGen === 'error' && cuadrante.errorGeneracion && (
             <Alert variant="destructive">
@@ -513,6 +532,28 @@ function AsignacionesTabla({
 // ============================================================================
 //  Helpers
 // ============================================================================
+
+/**
+ * B35.1 (opción 12b del reconocimiento): el cuadrante no guarda con qué
+ * convenio se generó, pero ambos timestamps existen. Si el convenio se
+ * modificó DESPUÉS de la última generación de un BORRADOR ya generado, el plan
+ * no refleja el convenio vigente. Sobre publicado/cerrado no procede.
+ */
+function convenioDesactualizado(
+  cuadrante: Cuadrante,
+  estadoGen: EstadoGeneracion,
+  convenio: Convenio | null,
+): boolean {
+  if (cuadrante.estado !== 'borrador' || estadoGen !== 'completado') return false;
+  const cambioConvenio = convenio?.actualizadoEn ?? convenio?.creadoEn;
+  const gen = cuadrante.fechaGeneracion;
+  if (!cambioConvenio || !gen) return false;
+  try {
+    return cambioConvenio.toMillis() > gen.toMillis();
+  } catch {
+    return false;
+  }
+}
 
 function mesLabel(año: number, mes: number): string {
   return `${String(mes).padStart(2, '0')}/${año}`;

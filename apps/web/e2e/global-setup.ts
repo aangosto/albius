@@ -69,6 +69,11 @@ async function globalSetup(): Promise<void> {
       'crearAsignacion',
       'actualizarAsignacion',
       'eliminarAsignacion',
+      // B35.1: convenio + festivos.
+      'guardarConvenio',
+      'crearFestivo',
+      'actualizarFestivo',
+      'eliminarFestivo',
     ].map((fn) =>
       fetch(`${base}/${fn}`, {
         method: 'POST',

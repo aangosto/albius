@@ -19,6 +19,8 @@ const ConductoresPage = lazy(() => import('@/pages/ConductoresPage'));
 const AusenciasPage = lazy(() => import('@/pages/AusenciasPage'));
 const LineasPage = lazy(() => import('@/pages/LineasPage'));
 const TiposTurnoPage = lazy(() => import('@/pages/TiposTurnoPage'));
+const FestivosPage = lazy(() => import('@/pages/FestivosPage'));
+const ConvenioPage = lazy(() => import('@/pages/ConvenioPage'));
 const IncidenciasPage = lazy(() => import('@/pages/IncidenciasPage'));
 const IntercambiosPage = lazy(() => import('@/pages/IntercambiosPage'));
 const MiHorarioPage = lazy(() => import('@/pages/MiHorarioPage'));
@@ -50,6 +52,8 @@ export const router = createBrowserRouter([
           { path: '/ausencias', element: <AusenciasPage /> },
           { path: '/lineas', element: <LineasPage /> },
           { path: '/tipos-turno', element: <TiposTurnoPage /> },
+          { path: '/festivos', element: <FestivosPage /> },
+          { path: '/convenio', element: <ConvenioPage /> },
           { path: '/incidencias', element: <IncidenciasPage /> },
           { path: '/intercambios', element: <IntercambiosPage /> },
           { path: '/mi-horario', element: <MiHorarioPage /> },

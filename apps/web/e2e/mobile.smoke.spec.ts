@@ -1,5 +1,9 @@
 import { test, expect, type Page } from '@playwright/test';
-import { resetConductoresB22, resetCuadranteB33 } from './helpers/seed';
+import {
+  resetConductoresB22,
+  resetCuadranteB33,
+  resetFestivosB35,
+} from './helpers/seed';
 
 /**
  * Smoke MÓVIL (B34.3): viewport 375×667 (iPhone SE/8). storageState del jefe.
@@ -52,9 +56,10 @@ test('drawer: abre, navega y cierra', async ({ page }) => {
   await expect(drawer).toBeHidden();
 });
 
-test('páginas del jefe sin overflow horizontal a 375px', async ({ page }) => {
+test('páginas del jefe sin overflow horizontal a 375px (incl. Festivos y Convenio, B35.1)', async ({ page }) => {
   resetConductoresB22();
   resetCuadranteB33('borrador');
+  resetFestivosB35();
   const rutas = [
     ['/dashboard', 'Dashboard'],
     ['/cuadrante', 'Cuadrante'],
@@ -63,6 +68,8 @@ test('páginas del jefe sin overflow horizontal a 375px', async ({ page }) => {
     ['/ausencias', 'Ausencias'],
     ['/lineas', 'Líneas'],
     ['/tipos-turno', 'Tipos de turno'],
+    ['/festivos', 'Festivos'],
+    ['/convenio', 'Convenio'],
   ] as const;
   for (const [ruta, titulo] of rutas) {
     await page.goto(ruta);
