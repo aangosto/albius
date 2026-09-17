@@ -1,8 +1,9 @@
 /**
  * Exportación del cuadrante (B36) — helpers PUROS de formato + la descarga en
- * navegador. Sin React. Sin dependencias: B36.1 entrega CSV; Excel (B36.2) y
- * PDF (B36.3) se añadirán aquí (o en módulos hermanos cargados con `import()`
- * al pulsar, para no tocar el primer paint).
+ * navegador. Sin React. Sin dependencias: B36.1 entrega CSV. Excel (B36.2,
+ * `lib/exportarExcel.ts`) y PDF (B36.3) viven en módulos hermanos cargados con
+ * `import()` al pulsar, para no tocar el primer paint; este módulo sigue sin
+ * deps y guarda lo común (metadatos, nombre de fichero, tinte, descarga).
  *
  * La rejilla viene de `construirRejilla` (lib/calendario, con las ausencias ya
  * cruzadas, D6.29). Regla de celda (B36.1): código del turno > etiqueta de
@@ -29,7 +30,7 @@ export interface MetadatosExport {
 export function slugFichero(texto: string): string {
   return texto
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
@@ -45,6 +46,30 @@ export function nombreFicheroCuadrante(
 }
 
 // ============================================================================
+//  Color
+// ============================================================================
+
+/**
+ * TINTE CLARO de un color de línea para papel/Excel: mezcla con blanco
+ * (`factor` = cuánto blanco, 0.78 por defecto) y devuelve HEX. En pantalla la
+ * celda lleva el color saturado con texto blanco; impreso en blanco y negro
+ * (lo habitual en un tablón) eso se vuelve un bloque gris ilegible. Con el
+ * tinte claro el texto va en negro y se lee en color y en B/N. Devuelve el
+ * color de entrada si no es un HEX de 6 dígitos.
+ */
+export function tinteClaro(hex: string, factor = 0.78): string {
+  const h = hex.replace('#', '');
+  if (!/^[0-9a-fA-F]{6}$/.test(h)) return hex;
+  const mezcla = (i: number) => {
+    const c = parseInt(h.slice(i, i + 2), 16);
+    return Math.round(c + (255 - c) * factor)
+      .toString(16)
+      .padStart(2, '0');
+  };
+  return `#${mezcla(0)}${mezcla(2)}${mezcla(4)}`.toUpperCase();
+}
+
+// ============================================================================
 //  CSV
 // ============================================================================
 
@@ -55,7 +80,7 @@ export function nombreFicheroCuadrante(
  */
 export const CSV_SEPARADOR = ';';
 /** BOM UTF-8: sin él, Excel (Windows) abre el fichero como ANSI y rompe ñ/acentos. */
-export const CSV_BOM = '﻿';
+export const CSV_BOM = '\uFEFF';
 /** Fin de línea de Windows (RFC 4180; Excel lo prefiere). */
 export const CSV_EOL = '\r\n';
 

@@ -71,8 +71,9 @@ import type {
  *     `codigo` de la empresa (V, B, AP) o la categoría; estilo distinto al de
  *     un turno. Si el día tiene turno Y ausencia, GANA EL TURNO en la celda y
  *     la ausencia va al tooltip/aria-label (con un contorno discontinuo).
- *   - Botón "Exportar" (menú) con el cuadrante completo en CSV. Carga además
- *     el centro (nombre para la cabecera del fichero).
+ *   - Botón "Exportar" (menú) con el cuadrante completo en CSV y Excel
+ *     (B36.2, exceljs en chunk diferido). Carga además el centro (nombre para
+ *     la cabecera del fichero).
  *
  * ⚠️ Fechas en UTC en todo (helpers de lib/calendario, D6.22).
  *
@@ -373,12 +374,9 @@ function CalendarioOk({
           <LeyendaLineas lineas={datos.lineas} />
           <ExportarCuadranteMenu
             rejilla={rejilla}
-            meta={{
-              centroNombre: datos.centro?.nombre ?? centroId,
-              año,
-              mes,
-              estado: cuadrante.estado,
-            }}
+            cuadrante={cuadrante}
+            lineas={datos.lineas}
+            centroNombre={datos.centro?.nombre ?? centroId}
           />
         </div>
       </div>

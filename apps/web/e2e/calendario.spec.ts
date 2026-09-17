@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import ExcelJS from 'exceljs';
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { resetConductoresB22, resetCuadranteB33 } from './helpers/seed';
 
@@ -17,7 +18,8 @@ import { resetConductoresB22, resetCuadranteB33 } from './helpers/seed';
  *
  * B36.1: la rejilla PINTA las ausencias (D6.29) y el menú Exportar descarga el
  * cuadrante en CSV (BOM + `;`, `D` en descanso, gana el turno sobre la
- * ausencia).
+ * ausencia). B36.2: Excel (exceljs) con paneles fijos, hoja Resumen y estilos;
+ * se parsea con exceljs en Node para validar el contenido.
  */
 
 const MES = '2026-09';
@@ -230,5 +232,86 @@ test.describe('Calendario · ausencias en la rejilla + Exportar CSV (B36.1)', ()
     expect(perez[10]).toBe('AP');
     expect(perez[11]).toBe('D');
     expect(perez).toHaveLength(31);
+  });
+});
+
+test.describe('Calendario · Exportar Excel (B36.2)', () => {
+  test.beforeEach(async ({ page }) => {
+    resetConductoresB22();
+    resetCuadranteB33('borrador');
+    await irAlCalendario(page);
+  });
+
+  test('Exportar Excel: hojas, paneles fijos, turno, ausencia, D y resumen', async ({
+    page,
+  }) => {
+    await asignar(page, 'García', 5, 'M-LARGO');
+
+    await page.getByRole('button', { name: 'Exportar' }).click();
+    const item = page.getByRole('menuitem', { name: /^Excel/ });
+    await expect(item).toBeVisible();
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      item.click(),
+    ]);
+    expect(download.suggestedFilename()).toBe('cuadrante_centro-test_2026-09.xlsx');
+    const ruta = await download.path();
+    expect(ruta).not.toBeNull();
+
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.readFile(ruta!);
+    expect(wb.worksheets.map((w) => w.name)).toEqual(['Cuadrante', 'Resumen']);
+
+    // --- Hoja Cuadrante ---
+    const ws = wb.getWorksheet('Cuadrante')!;
+    // Paneles fijos: columna del conductor + fila de cabecera.
+    expect(ws.views[0]).toMatchObject({ state: 'frozen', xSplit: 1, ySplit: 1 });
+    expect(ws.getCell('A1').value).toBe('Conductor');
+    expect(ws.getCell('B1').value).toBe('1\nM'); // 1/09/2026 es martes
+    expect(ws.getCell('C1').value).toBe('2\nX');
+    expect(ws.getColumn(1).width).toBeGreaterThanOrEqual(25);
+
+    const filaDe = (apellidoNombre: string) => {
+      let encontrada: ExcelJS.Row | undefined;
+      ws.eachRow((row) => {
+        const v = row.getCell(1).value;
+        if (typeof v === 'string' && v.startsWith(apellidoNombre)) encontrada = row;
+      });
+      expect(encontrada, `fila de ${apellidoNombre}`).toBeDefined();
+      return encontrada!;
+    };
+    // Columna del día N = N + 1 (A = conductor).
+    const garcia = filaDe('García, Ana');
+    expect(garcia.getCell(6).value).toBe('M-LARGO');
+    expect(garcia.getCell(6).font?.bold).toBe(true);
+    expect(garcia.getCell(2).value).toBe('D');
+    const perez = filaDe('Pérez, Luis');
+    expect(perez.getCell(11).value).toBe('AP');
+    expect(perez.getCell(11).font?.italic).toBe(true);
+    expect(perez.getCell(11).fill).toMatchObject({ type: 'pattern', pattern: 'solid' });
+    expect(perez.getCell(12).value).toBe('D');
+    // Leyenda al pie.
+    const textos: string[] = [];
+    ws.eachRow((row) => {
+      const v = row.getCell(1).value;
+      if (typeof v === 'string') textos.push(v);
+    });
+    expect(textos).toContain('Leyenda');
+    expect(textos).toContain('D — descanso');
+
+    // --- Hoja Resumen ---
+    const rs = wb.getWorksheet('Resumen')!;
+    const pares = new Map<string, unknown>();
+    rs.eachRow((row) => {
+      const k = row.getCell(1).value;
+      if (typeof k === 'string') pares.set(k, row.getCell(2).value);
+    });
+    expect(pares.get('Centro')).toBe('Centro Test');
+    expect(pares.get('Mes')).toBe('09/2026');
+    expect(pares.get('Estado')).toBe('borrador');
+    expect(pares.get('Conductores')).toBe(3);
+    expect(pares.get('Asignaciones (turnos)')).toBe(1);
+    expect(pares.get('Días de ausencia (sin turno)')).toBe(1);
+    expect(String(pares.get('Fichero generado'))).toMatch(/por Albius$/);
   });
 });
