@@ -37,11 +37,15 @@ export type EstadoCentro = "activo" | "inactivo";
 
 export type EstadoUsuario = "activo" | "suspendido";
 
+// TODO[estado-conductor-deprecar-ausencias]: 'vacaciones' y 'baja_temporal'
+// deprecados de facto desde B32 (ausencias por rango en `ausencias`).
 export type EstadoConductor =
   | "activo"
   | "baja_temporal"
   | "vacaciones"
   | "baja_definitiva";
+
+export type CategoriaAusencia = "vacaciones" | "baja" | "permiso";
 
 export type CategoriaConductor = "conductor"; // Solo en MVP. Más adelante: interventor, inspector, taller...
 
@@ -560,6 +564,27 @@ export interface Incidencia {
 }
 
 // ============================================================================
+//  4.19b AUSENCIAS – Ausencias por RANGO de un conductor (B32)
+// ============================================================================
+
+export interface Ausencia {
+  id: string;
+  tenantId: string;
+  centroId: string; // requerido (D5.1): el del conductor
+  conductorId: string;
+  categoria: CategoriaAusencia; // cerrada: lo que entiende el motor
+  codigo?: string; // sigla libre de la empresa: "V", "E", "B", "AP", "PS", "PF"…
+  fechaInicio: Timestamp; // inclusive
+  fechaFin: Timestamp; // inclusive (>= fechaInicio; igual = día suelto)
+  observaciones?: string;
+  // --- Auditoría canónica D6.4 ---
+  creadoPor?: string;
+  creadoEn?: Timestamp;
+  actualizadoPor?: string;
+  actualizadoEn?: Timestamp;
+}
+
+// ============================================================================
 //  4.19  FESTIVOS – Calendario de festivos
 // ============================================================================
 
@@ -669,6 +694,7 @@ export const COLLECTIONS = {
   SOLICITUDES_INTERCAMBIO: "solicitudes_intercambio",
   INCIDENCIAS: "incidencias",
   FESTIVOS: "festivos",
+  AUSENCIAS: "ausencias",
   CONVENIO: "convenio",
   NOTIFICACIONES: "notificaciones",
   AUDIT_LOGS: "audit_logs",

@@ -37,6 +37,11 @@ export type EstadoCentro = 'activo' | 'inactivo';
 
 export type EstadoUsuario = 'activo' | 'suspendido';
 
+// TODO[estado-conductor-deprecar-ausencias]: desde B32 las ausencias por RANGO
+// (vacaciones/baja/permiso) viven en la colección `ausencias`. Los estados
+// 'vacaciones' y 'baja_temporal' quedan DEPRECADOS de facto (sacaban al conductor
+// del mes ENTERO); retirarlos del enum (con migración de docs) más adelante. El
+// pool del optimizador sigue siendo estado=='activo' y las ausencias recortan días.
 export type EstadoConductor =
   | 'activo'
   | 'baja_temporal'
@@ -148,6 +153,11 @@ export type AmbitoFestivo =
   | 'empresa';
 
 export type TipoTraficoFestivo = 'festivo' | 'domingo' | 'laborable';
+
+// Categoría CERRADA de ausencia (B32): lo que entiende el motor y las
+// estadísticas. El código de la casa ("V", "AP", "PS"…) es libre en
+// `Ausencia.codigo`.
+export type CategoriaAusencia = 'vacaciones' | 'baja' | 'permiso';
 
 export type CanalNotificacion = 'app' | 'email' | 'push' | 'whatsapp';
 
@@ -644,6 +654,35 @@ export interface Festivo {
 }
 
 // ============================================================================
+//  4.19b AUSENCIAS – Ausencias por RANGO de un conductor (B32)
+// ============================================================================
+//
+//  Vacaciones / baja / permiso de un conductor entre dos fechas (inclusive;
+//  inicio == fin = día suelto). Entidad NUEVA, distinta de Incidencia (evento
+//  imprevisto sobre cuadrante publicado). NO se materializa como Asignacion
+//  (regenerarAsignaciones las destruiría): vive solo aquí; el orquestador del
+//  optimizador expande los rangos a días (B32.3) y los consumidores de calendario
+//  cruzan esta colección. Un conductor no puede tener dos ausencias solapadas.
+//  RET (retén) NO es ausencia (es turno de guardia): fuera de este modelo.
+
+export interface Ausencia {
+  id: string;
+  tenantId: string;
+  centroId: string; // requerido (D5.1): el del conductor
+  conductorId: string;
+  categoria: CategoriaAusencia;
+  codigo?: string; // sigla libre de la empresa: "V", "E", "B", "AP", "PS", "PF"…
+  fechaInicio: Timestamp; // inclusive, medianoche UTC
+  fechaFin: Timestamp; // inclusive (>= fechaInicio; igual = un día)
+  observaciones?: string;
+  // --- Auditoría canónica D6.4 ---
+  creadoPor?: string;
+  creadoEn?: Timestamp;
+  actualizadoPor?: string;
+  actualizadoEn?: Timestamp;
+}
+
+// ============================================================================
 //  4.20  CONVENIO – Reglas legales configurables por CENTRO (singleton)
 // ============================================================================
 //
@@ -741,6 +780,7 @@ export const COLLECTIONS = {
   SOLICITUDES_INTERCAMBIO: 'solicitudes_intercambio',
   INCIDENCIAS: 'incidencias',
   FESTIVOS: 'festivos',
+  AUSENCIAS: 'ausencias',
   CONVENIO: 'convenio',
   NOTIFICACIONES: 'notificaciones',
   AUDIT_LOGS: 'audit_logs',

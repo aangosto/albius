@@ -457,6 +457,42 @@ service cloud.firestore {
     }
 
     // ========================================================================
+    //  4.19b AUSENCIAS
+    // ========================================================================
+    //
+    //  Ausencias por RANGO de un conductor (B32): vacaciones/baja/permiso entre
+    //  dos fechas. Entidad operativa del jefe → patrón /lineas (jefe-scoped por
+    //  tenant + veto de inmutables) + sameCentro (una ausencia es de un centro
+    //  concreto, requerido). La verdad fina (conductor del centro, no-solape,
+    //  rango coherente) la imponen los callables crear/actualizar/eliminarAusencia
+    //  (Admin SDK); la regla es defensa de cliente. read tenant-scoped: el listado
+    //  del jefe constriñe where('tenantId') (D6.5) + where('centroId') (índice
+    //  B32). delete super_admin a nivel regla (el jefe borra vía callable).
+
+    match /ausencias/{id} {
+      allow read: if isSuperAdmin()
+                  || (isAuth() && sameTenant(resource.data.tenantId));
+
+      allow create: if (isSuperAdmin() || isJefeTrafico())
+                    && sameTenant(request.resource.data.tenantId)
+                    && sameCentro(request.resource.data.centroId);
+
+      allow update: if (isSuperAdmin() || isJefeTrafico())
+                    && sameTenant(resource.data.tenantId)
+                    && sameCentro(resource.data.centroId)
+                    && !fieldsChanged([
+                      'id',
+                      'tenantId',
+                      'centroId',
+                      'conductorId',
+                      'creadoPor',
+                      'creadoEn'
+                    ]);
+
+      allow delete: if isSuperAdmin();
+    }
+
+    // ========================================================================
     //  4.21  NOTIFICACIONES
     // ========================================================================
     //

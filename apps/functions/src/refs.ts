@@ -590,3 +590,90 @@ export async function assertCuadranteEditable(
     mes: typeof data["mes"] === "number" ? data["mes"] : 0,
   };
 }
+
+// ============================================================================
+//  AUSENCIAS (B32)
+// ============================================================================
+
+/**
+ * Verifica que el conductor existe Y pertenece al centro indicado, SIN exigir
+ * `estado=='activo'` (B32, patrón laxo de `assertLineaDelCentro`): se puede
+ * registrar la baja de un conductor que ya está inactivo, y la simetría
+ * crear/editar evita "puedo crearla pero no re-guardarla". Códigos (D5.2):
+ * inexistente → 'invalid-argument'; de otro centro → 'invalid-argument'.
+ */
+export async function assertConductorDelCentro(
+  db: Firestore,
+  conductorId: string,
+  centroId: string,
+): Promise<void> {
+  const snap = await db
+    .collection(COLLECTIONS.CONDUCTORES)
+    .doc(conductorId)
+    .get();
+  if (!snap.exists) {
+    throw new HttpsError(
+      "invalid-argument",
+      `El conductor '${conductorId}' no existe.`,
+    );
+  }
+  const data = snap.data();
+  if (data?.["centroId"] !== centroId) {
+    throw new HttpsError(
+      "invalid-argument",
+      `El conductor '${conductorId}' no pertenece a este centro. ` +
+        `Una ausencia solo puede registrarse sobre conductores del propio centro.`,
+    );
+  }
+}
+
+/**
+ * Verifica que el conductor NO tiene otra ausencia cuyo rango solape con
+ * [fechaInicio, fechaFin] (B32). Solape CERRADO en ambos extremos (a diferencia
+ * del medio-abierto de D6.8 para tramos horarios): dos rangos de días
+ * [aIni,aFin] y [bIni,bFin] solapan sii `aIni <= bFin && bIni <= aFin` — tocar en
+ * el mismo día YA es solape (un día no puede ser vacaciones y permiso a la vez).
+ * Comparación por día ISO en UTC. `excludeId` para que `actualizarAusencia` no
+ * choque consigo misma. Query por `conductorId` (índice single-field auto) +
+ * filtro en memoria (pocas ausencias por conductor). Si solapa →
+ * 'failed-precondition' con el rango conflictivo.
+ */
+export async function assertNoSolapeAusencia(
+  db: Firestore,
+  params: {
+    conductorId: string;
+    fechaInicio: Date;
+    fechaFin: Date;
+    excludeId?: string;
+  },
+): Promise<void> {
+  const aIni = diaISO(params.fechaInicio);
+  const aFin = diaISO(params.fechaFin);
+  const snap = await db
+    .collection(COLLECTIONS.AUSENCIAS)
+    .where("conductorId", "==", params.conductorId)
+    .get();
+  for (const doc of snap.docs) {
+    if (params.excludeId !== undefined && doc.id === params.excludeId) continue;
+    const d = doc.data();
+    const ini = d["fechaInicio"];
+    const fin = d["fechaFin"];
+    if (
+      !ini ||
+      typeof ini.toDate !== "function" ||
+      !fin ||
+      typeof fin.toDate !== "function"
+    ) {
+      continue;
+    }
+    const bIni = diaISO(ini);
+    const bFin = diaISO(fin);
+    if (aIni <= bFin && bIni <= aFin) {
+      throw new HttpsError(
+        "failed-precondition",
+        `El rango ${aIni}–${aFin} solapa con otra ausencia del conductor ` +
+          `(${String(d["categoria"])} ${bIni}–${bFin}). Un conductor no puede tener dos ausencias solapadas.`,
+      );
+    }
+  }
+}

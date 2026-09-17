@@ -32,6 +32,7 @@ export const COLLECTIONS = {
   SOLICITUDES_INTERCAMBIO: "solicitudes_intercambio",
   INCIDENCIAS: "incidencias",
   FESTIVOS: "festivos",
+  AUSENCIAS: "ausencias",
   CONVENIO: "convenio",
   NOTIFICACIONES: "notificaciones",
   AUDIT_LOGS: "audit_logs",

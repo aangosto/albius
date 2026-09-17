@@ -1,6 +1,7 @@
 import { HttpsError } from "firebase-functions/v2/https";
 import type {
   AmbitoFestivo,
+  CategoriaAusencia,
   CategoriaConductor,
   EstadoAsignacion,
   EstadoCentro,
@@ -2780,6 +2781,164 @@ export function validateEliminarFestivoPayload(data: unknown): {
   const payload = assertPayloadObject(data, "eliminarFestivo");
   return {
     festivoId: assertNonEmptyString(payload["festivoId"], "festivoId"),
+  };
+}
+
+// ============================================================================
+//  AUSENCIAS (B32) — ausencias por rango de un conductor
+// ============================================================================
+
+const CATEGORIAS_AUSENCIA_PERMITIDAS = [
+  "vacaciones",
+  "baja",
+  "permiso",
+] as const;
+
+/**
+ * Rango CERRADO de una ausencia: exige `fechaInicio <= fechaFin` (iguales =
+ * ausencia de UN día, p.ej. un permiso "AP"). OJO: distinto de
+ * `assertVigenciaCoherente` (Línea), que exige estricto `<`. Exportado porque
+ * `actualizarAusencia` lo re-aplica sobre los valores EFECTIVOS
+ * (payload ?? doc persistido) cuando solo llega una de las dos fechas — la
+ * política de "no contrastar contra estado persistido" del módulo NO vale aquí:
+ * mover solo el fin podría dejarlo antes del inicio.
+ */
+export function assertRangoAusenciaCoherente(
+  fechaInicio: Date,
+  fechaFin: Date,
+): void {
+  if (fechaInicio.getTime() > fechaFin.getTime()) {
+    throw new HttpsError(
+      "invalid-argument",
+      "El campo 'fechaInicio' debe ser igual o anterior a 'fechaFin'.",
+    );
+  }
+}
+
+/**
+ * Payload de crearAusencia (B32). `centroId` REQUERIDO (D5.1; el conductor debe
+ * ser de ese centro — lo verifica el callable). `categoria` cerrada;
+ * `codigo` libre (sigla de la empresa) y `observaciones` opcionales. Fechas
+ * como Date (parseadas de ISO; el callable las pasa a Timestamp).
+ */
+export interface CrearAusenciaPayload {
+  tenantId: string;
+  centroId: string;
+  conductorId: string;
+  categoria: CategoriaAusencia;
+  codigo?: string;
+  fechaInicio: Date;
+  fechaFin: Date;
+  observaciones?: string;
+}
+
+export function validateCrearAusenciaPayload(
+  data: unknown,
+): CrearAusenciaPayload {
+  const payload = assertPayloadObject(data, "crearAusencia");
+  const result: CrearAusenciaPayload = {
+    tenantId: assertNonEmptyString(payload["tenantId"], "tenantId"),
+    centroId: assertNonEmptyString(payload["centroId"], "centroId"),
+    conductorId: assertNonEmptyString(payload["conductorId"], "conductorId"),
+    categoria: assertEnum(
+      payload["categoria"],
+      CATEGORIAS_AUSENCIA_PERMITIDAS,
+      "categoria",
+    ),
+    fechaInicio: assertISODate(payload["fechaInicio"], "fechaInicio"),
+    fechaFin: assertISODate(payload["fechaFin"], "fechaFin"),
+  };
+  assertRangoAusenciaCoherente(result.fechaInicio, result.fechaFin);
+  const codigo = assertOptionalNonEmptyString(payload["codigo"], "codigo");
+  if (codigo !== undefined) result.codigo = codigo;
+  const observaciones = assertOptionalNonEmptyString(
+    payload["observaciones"],
+    "observaciones",
+  );
+  if (observaciones !== undefined) result.observaciones = observaciones;
+  return result;
+}
+
+/**
+ * Payload de actualizarAusencia. `ausenciaId` siempre; el resto opcional
+ * (assertAtLeastOneField). Inmutables vetados: id, tenantId, centroId,
+ * conductorId (una ausencia es DE un conductor; cambiarla de conductor = crear
+ * otra), creadoPor, creadoEn. Si llegan AMBAS fechas se cruzan aquí; si llega
+ * solo una, el callable la cruza contra la persistida.
+ */
+export interface ActualizarAusenciaPayload {
+  ausenciaId: string;
+  categoria?: CategoriaAusencia;
+  codigo?: string;
+  fechaInicio?: Date;
+  fechaFin?: Date;
+  observaciones?: string;
+}
+
+export function validateActualizarAusenciaPayload(
+  data: unknown,
+): ActualizarAusenciaPayload {
+  const payload = assertPayloadObject(data, "actualizarAusencia");
+
+  const VETO: Record<string, string> = {
+    id: "El campo 'id' no es editable.",
+    tenantId: "El tenantId no es editable.",
+    centroId: "El centroId no es editable.",
+    conductorId:
+      "El conductorId no es editable (una ausencia pertenece a un conductor; crea otra si cambia de conductor).",
+    creadoPor: "El campo 'creadoPor' no es editable.",
+    creadoEn: "El campo 'creadoEn' no es editable.",
+  };
+  for (const campo of Object.keys(VETO)) {
+    if (campo in payload) {
+      throw new HttpsError("invalid-argument", VETO[campo]!);
+    }
+  }
+
+  const ausenciaId = assertNonEmptyString(payload["ausenciaId"], "ausenciaId");
+
+  const CAMPOS_OPCIONALES = [
+    "categoria",
+    "codigo",
+    "fechaInicio",
+    "fechaFin",
+    "observaciones",
+  ] as const;
+  assertAtLeastOneField(payload, CAMPOS_OPCIONALES, "actualizarAusencia");
+
+  const result: ActualizarAusenciaPayload = { ausenciaId };
+  const categoria = assertOptionalEnum(
+    payload["categoria"],
+    CATEGORIAS_AUSENCIA_PERMITIDAS,
+    "categoria",
+  );
+  if (categoria !== undefined) result.categoria = categoria;
+  const codigo = assertOptionalNonEmptyString(payload["codigo"], "codigo");
+  if (codigo !== undefined) result.codigo = codigo;
+  const fechaInicio = assertOptionalISODate(
+    payload["fechaInicio"],
+    "fechaInicio",
+  );
+  if (fechaInicio !== undefined) result.fechaInicio = fechaInicio;
+  const fechaFin = assertOptionalISODate(payload["fechaFin"], "fechaFin");
+  if (fechaFin !== undefined) result.fechaFin = fechaFin;
+  if (fechaInicio !== undefined && fechaFin !== undefined) {
+    assertRangoAusenciaCoherente(fechaInicio, fechaFin);
+  }
+  const observaciones = assertOptionalNonEmptyString(
+    payload["observaciones"],
+    "observaciones",
+  );
+  if (observaciones !== undefined) result.observaciones = observaciones;
+  return result;
+}
+
+export function validateEliminarAusenciaPayload(data: unknown): {
+  ausenciaId: string;
+} {
+  const payload = assertPayloadObject(data, "eliminarAusencia");
+  return {
+    ausenciaId: assertNonEmptyString(payload["ausenciaId"], "ausenciaId"),
   };
 }
 
