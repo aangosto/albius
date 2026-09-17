@@ -65,6 +65,10 @@ async function globalSetup(): Promise<void> {
       'actualizarTipoTurno',
       'crearConductor',
       'actualizarConductor',
+      // B33.2: mutaciones del Calendario (edición manual de celdas).
+      'crearAsignacion',
+      'actualizarAsignacion',
+      'eliminarAsignacion',
     ].map((fn) =>
       fetch(`${base}/${fn}`, {
         method: 'POST',

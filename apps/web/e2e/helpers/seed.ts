@@ -66,3 +66,19 @@ export function readConductorB21(conductorId: string): ConductorOperativo {
   );
   return JSON.parse(out.trim()) as ConductorOperativo;
 }
+
+/**
+ * Deja en centro-test el cuadrante cua_centro-test_2026_9 en el estado dado
+ * SIN asignaciones + convenio del centro (descanso 12 h) + 1 ausencia
+ * (cond_b22_2, permiso 2026-09-10). Para el spec de B33.2 (Calendario con
+ * edición manual). Llamar DESPUÉS de resetConductoresB22().
+ */
+export function resetCuadranteB33(
+  estado: 'borrador' | 'publicado' | 'cerrado' = 'borrador',
+): void {
+  execFileSync(
+    'node',
+    [path.join(SCRIPTS, 'reset-cuadrante-b33.mjs'), '--estado', estado],
+    { stdio: 'pipe' },
+  );
+}

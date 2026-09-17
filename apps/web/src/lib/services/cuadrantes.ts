@@ -27,6 +27,7 @@ import {
   COLLECTIONS,
   type Asignacion,
   type Cuadrante,
+  type TipoAsignacion,
 } from '@albius/shared';
 import { db, functions, functionsEu } from '@/lib/firebase';
 
@@ -126,6 +127,79 @@ export const publicarCuadrante = callableCicloVida('publicarCuadrante');
 export const cerrarCuadrante = callableCicloVida('cerrarCuadrante');
 /** publicado → borrador. Salida de emergencia de publicar (B33.1). */
 export const reabrirCuadrante = callableCicloVida('reabrirCuadrante');
+
+// ---------------------------------------------------------------------------
+//  Asignaciones manuales (B33.2, callables B26 en us-central1). El backend
+//  rechaza lo estructural (R1, referencias); lo de convenio lo avisa la UI.
+// ---------------------------------------------------------------------------
+
+export interface CrearAsignacionInput {
+  cuadranteId: string;
+  conductorId: string;
+  /** "YYYY-MM-DD" (UTC). */
+  fecha: string;
+  tipoAsignacion: TipoAsignacion;
+  tipoTurnoId?: string;
+  horaInicio: string;
+  horaFin: string;
+}
+export interface CrearAsignacionResult {
+  ok: true;
+  asignacionId: string;
+}
+export async function crearAsignacion(
+  input: CrearAsignacionInput,
+): Promise<CrearAsignacionResult> {
+  const fn = httpsCallable<CrearAsignacionInput, CrearAsignacionResult>(
+    functions,
+    'crearAsignacion',
+  );
+  const res = await fn(input);
+  return res.data;
+}
+
+export interface ActualizarAsignacionInput {
+  asignacionId: string;
+  conductorId?: string;
+  fecha?: string;
+  tipoAsignacion?: TipoAsignacion;
+  tipoTurnoId?: string;
+  horaInicio?: string;
+  horaFin?: string;
+}
+export interface ActualizarAsignacionResult {
+  ok: true;
+  asignacionId: string;
+}
+export async function actualizarAsignacion(
+  input: ActualizarAsignacionInput,
+): Promise<ActualizarAsignacionResult> {
+  const fn = httpsCallable<ActualizarAsignacionInput, ActualizarAsignacionResult>(
+    functions,
+    'actualizarAsignacion',
+  );
+  const res = await fn(input);
+  return res.data;
+}
+
+export interface EliminarAsignacionInput {
+  asignacionId: string;
+}
+export interface EliminarAsignacionResult {
+  ok: true;
+  asignacionId: string;
+}
+/** Hard-delete: sin fila = día libre (D6.10). */
+export async function eliminarAsignacion(
+  input: EliminarAsignacionInput,
+): Promise<EliminarAsignacionResult> {
+  const fn = httpsCallable<EliminarAsignacionInput, EliminarAsignacionResult>(
+    functions,
+    'eliminarAsignacion',
+  );
+  const res = await fn(input);
+  return res.data;
+}
 
 // ============================================================================
 //  LECTURA

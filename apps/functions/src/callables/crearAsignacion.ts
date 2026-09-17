@@ -5,7 +5,12 @@ import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { COLLECTIONS } from "../collections";
 import { assertSuperAdminOrJefeTrafico, type Claims } from "../auth-guards";
 import { validateCrearAsignacionPayload, assertFechaEnMes } from "../validation";
-import { assertCuadranteEditable } from "../refs";
+import {
+  assertConductorDelCentro,
+  assertConductorLibreEnFecha,
+  assertCuadranteEditable,
+  assertTipoTurnoDelCentro,
+} from "../refs";
 
 /**
  * Anti-cross del jefe sobre el cuadrante padre de una asignación. El
@@ -43,9 +48,14 @@ export function assertJefePuedeTocarCuadrante(
  *   - esIntercambiada=false (los intercambios son bloque futuro). estado
  *     defaultea 'planificada'. Auditoría D3.7.
  *
- * NO valida que conductorId/tipoTurnoId referencien docs reales (paridad con la
- * laxitud del proyecto; la UI solo ofrecerá ids del centro). Ver
- * TODO[asignacion-validar-referencias] al abordar el cuadrante visual / B27.
+ * Validación ESTRUCTURAL (B33.2, cierra TODO[asignacion-validar-referencias]):
+ *   - conductorId existe y es del centro del cuadrante (assertConductorDelCentro).
+ *   - tipoTurnoId (si viene) existe y es del centro (assertTipoTurnoDelCentro,
+ *     laxa: un turno obsoleto se puede asignar puntualmente).
+ *   - R1: el conductor no tiene ya otra asignación ese día en este cuadrante
+ *     (assertConductorLibreEnFecha).
+ * Lo de convenio (descanso, habilitación, ausencia) NO se valida aquí: la UI
+ * avisa y el jefe decide (decisión híbrida B33.2).
  */
 export const crearAsignacion = onCall(async (request) => {
   const { uid: invocadorUid, claims } = assertSuperAdminOrJefeTrafico(request);
@@ -55,6 +65,18 @@ export const crearAsignacion = onCall(async (request) => {
   const cuadrante = await assertCuadranteEditable(db, payload.cuadranteId);
   assertJefePuedeTocarCuadrante(claims, cuadrante);
   assertFechaEnMes(payload.fecha, cuadrante.año, cuadrante.mes);
+
+  // Validación estructural B33.2.
+  await assertConductorDelCentro(db, payload.conductorId, cuadrante.centroId);
+  if (payload.tipoTurnoId !== undefined) {
+    await assertTipoTurnoDelCentro(db, payload.tipoTurnoId, cuadrante.centroId);
+  }
+  await assertConductorLibreEnFecha(db, {
+    tenantId: cuadrante.tenantId,
+    cuadranteId: payload.cuadranteId,
+    conductorId: payload.conductorId,
+    fecha: payload.fecha,
+  });
 
   const docRef = db.collection(COLLECTIONS.ASIGNACIONES).doc();
   const asignacionDoc = {

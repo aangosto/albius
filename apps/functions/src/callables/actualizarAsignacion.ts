@@ -9,7 +9,12 @@ import {
   validateActualizarAsignacionPayload,
   assertFechaEnMes,
 } from "../validation";
-import { assertCuadranteEditable } from "../refs";
+import {
+  assertConductorDelCentro,
+  assertConductorLibreEnFecha,
+  assertCuadranteEditable,
+  assertTipoTurnoDelCentro,
+} from "../refs";
 import { assertJefePuedeTocarCuadrante } from "./crearAsignacion";
 
 /**
@@ -21,6 +26,10 @@ import { assertJefePuedeTocarCuadrante } from "./crearAsignacion";
  *   - Si cambia la fecha, debe seguir DENTRO del mes del cuadrante.
  *   - Veta inmutables (id/cuadranteId/tenantId/centroId/creadoPor/creadoEn) y los
  *     campos de intercambio (el validator). Auditoría D4.1.
+ *   - Validación estructural B33.2 contra los valores EFECTIVOS (payload ??
+ *     persistido, patrón actualizarAusencia): conductor del centro (si cambia),
+ *     tipo de turno del centro (si cambia) y R1 con `excludeId` (si cambian
+ *     conductor o fecha; sobre sí misma no choca).
  */
 export const actualizarAsignacion = onCall(async (request) => {
   const { uid: invocadorUid, claims } = assertSuperAdminOrJefeTrafico(request);
@@ -42,6 +51,23 @@ export const actualizarAsignacion = onCall(async (request) => {
 
   if (payload.fecha !== undefined) {
     assertFechaEnMes(payload.fecha, cuadrante.año, cuadrante.mes);
+  }
+
+  // Validación estructural B33.2 (valores efectivos = payload ?? persistido).
+  if (payload.conductorId !== undefined) {
+    await assertConductorDelCentro(db, payload.conductorId, cuadrante.centroId);
+  }
+  if (payload.tipoTurnoId !== undefined) {
+    await assertTipoTurnoDelCentro(db, payload.tipoTurnoId, cuadrante.centroId);
+  }
+  if (payload.conductorId !== undefined || payload.fecha !== undefined) {
+    await assertConductorLibreEnFecha(db, {
+      tenantId: cuadrante.tenantId,
+      cuadranteId: doc.cuadranteId,
+      conductorId: payload.conductorId ?? doc.conductorId,
+      fecha: payload.fecha ?? doc.fecha.toDate(),
+      excludeId: payload.asignacionId,
+    });
   }
 
   const cambios: Record<string, unknown> = {};

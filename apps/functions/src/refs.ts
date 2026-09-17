@@ -1,4 +1,4 @@
-import type { Firestore } from "firebase-admin/firestore";
+import { type Firestore, Timestamp } from "firebase-admin/firestore";
 import { HttpsError } from "firebase-functions/v2/https";
 import type { Usuario } from "@albius/shared";
 import { COLLECTIONS } from "./collections";
@@ -601,6 +601,8 @@ export async function assertCuadranteEditable(
  * registrar la baja de un conductor que ya está inactivo, y la simetría
  * crear/editar evita "puedo crearla pero no re-guardarla". Códigos (D5.2):
  * inexistente → 'invalid-argument'; de otro centro → 'invalid-argument'.
+ * Compartida por ausencias (B32) y asignaciones manuales (B33.2): mensaje
+ * genérico.
  */
 export async function assertConductorDelCentro(
   db: Firestore,
@@ -622,7 +624,7 @@ export async function assertConductorDelCentro(
     throw new HttpsError(
       "invalid-argument",
       `El conductor '${conductorId}' no pertenece a este centro. ` +
-        `Una ausencia solo puede registrarse sobre conductores del propio centro.`,
+        `Solo se puede operar sobre conductores del propio centro.`,
     );
   }
 }
@@ -675,5 +677,89 @@ export async function assertNoSolapeAusencia(
           `(${String(d["categoria"])} ${bIni}–${bFin}). Un conductor no puede tener dos ausencias solapadas.`,
       );
     }
+  }
+}
+
+// ============================================================================
+//  ASIGNACIONES MANUALES (B33.2) — validación ESTRUCTURAL
+// ============================================================================
+//
+// Decisión B33.2 (híbrido): el backend RECHAZA lo que rompe el modelo (R1 y
+// referencias) y la UI solo AVISA de lo de convenio (descanso, habilitación,
+// ausencia), porque el jefe puede necesitar saltárselo en una urgencia real.
+
+/**
+ * Verifica que el tipo de turno existe Y pertenece al centro indicado, SIN
+ * exigir `estado=='activo'` (laxa, molde de `assertConductorDelCentro`): el
+ * jefe puede asignar puntualmente un turno obsoleto. Cierra
+ * TODO[asignacion-validar-referencias] junto con `assertConductorDelCentro`.
+ * Códigos (D5.2): inexistente → 'invalid-argument'; de otro centro →
+ * 'invalid-argument'.
+ */
+export async function assertTipoTurnoDelCentro(
+  db: Firestore,
+  tipoTurnoId: string,
+  centroId: string,
+): Promise<void> {
+  const snap = await db
+    .collection(COLLECTIONS.TIPOS_TURNO)
+    .doc(tipoTurnoId)
+    .get();
+  if (!snap.exists) {
+    throw new HttpsError(
+      "invalid-argument",
+      `El tipo de turno '${tipoTurnoId}' no existe.`,
+    );
+  }
+  const data = snap.data();
+  if (data?.["centroId"] !== centroId) {
+    throw new HttpsError(
+      "invalid-argument",
+      `El tipo de turno '${tipoTurnoId}' no pertenece a este centro. ` +
+        `Solo se pueden asignar tipos de turno del propio centro.`,
+    );
+  }
+}
+
+/**
+ * R1 en escritura manual (B33.2): un conductor NO puede tener dos asignaciones
+ * el mismo día dentro del mismo cuadrante. Crítico porque la rejilla del
+ * Calendario asume R1 ("primero gana"): un doble turno sería INVISIBLE en
+ * pantalla pero contaría en KPIs y en "mi horario". Query
+ * `(tenantId, conductorId, fecha)` — índice compuesto de B26 — + filtro en
+ * memoria por `cuadranteId` y `excludeId` (para que `actualizarAsignacion` no
+ * choque consigo misma). `fecha` se compara como Timestamp a medianoche UTC
+ * (así la escriben el optimizador y los callables). Conflicto →
+ * 'failed-precondition' con el tipo de la asignación existente.
+ */
+export async function assertConductorLibreEnFecha(
+  db: Firestore,
+  params: {
+    tenantId: string;
+    cuadranteId: string;
+    conductorId: string;
+    fecha: Date;
+    excludeId?: string;
+  },
+): Promise<void> {
+  const snap = await db
+    .collection(COLLECTIONS.ASIGNACIONES)
+    .where("tenantId", "==", params.tenantId)
+    .where("conductorId", "==", params.conductorId)
+    .where("fecha", "==", Timestamp.fromDate(params.fecha))
+    .get();
+  for (const doc of snap.docs) {
+    if (params.excludeId !== undefined && doc.id === params.excludeId) continue;
+    const d = doc.data();
+    if (d["cuadranteId"] !== params.cuadranteId) continue;
+    const que =
+      typeof d["tipoTurnoId"] === "string"
+        ? `turno ${d["tipoTurnoId"]}`
+        : String(d["tipoAsignacion"] ?? "asignación");
+    throw new HttpsError(
+      "failed-precondition",
+      `El conductor '${params.conductorId}' ya tiene una asignación el ${diaISO(params.fecha)} ` +
+        `(${que}). Un conductor no puede tener dos asignaciones el mismo día; quita la existente primero.`,
+    );
   }
 }

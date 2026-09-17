@@ -179,10 +179,49 @@ async function seed() {
     creadoEn: FieldValue.serverTimestamp(),
   });
   for (const c of SEED_CENTROS) await db.collection("centros").doc(c.id).set(c.data);
+  // B33.2: crear/actualizarAsignacion validan referencias (conductor y tipo de
+  // turno existentes y del centro) → los ids que usan los casos deben existir.
+  for (const [id, centroId] of Object.entries(SEED_CONDUCTORES)) {
+    await db.collection("conductores").doc(id).set({
+      id, tenantId: TENANT_ID, centroId,
+      nombre: "Cond", apellidos: id, dni: "00000000T", categoria: "conductor",
+      fechaAntiguedad: FieldValue.serverTimestamp(), fechaIncorporacion: FieldValue.serverTimestamp(),
+      estado: "activo", lineasPreferentes: [], lineasSecundarias: [],
+      tiposTurnoPermitidos: [], puedeSerReserva: true,
+      creadoPor: "system-seed", creadoEn: FieldValue.serverTimestamp(),
+    });
+  }
+  for (const [id, centroId] of Object.entries(SEED_TIPOS_TURNO)) {
+    await db.collection("tipos_turno").doc(id).set({
+      id, tenantId: TENANT_ID, centroId, codigo: id.toUpperCase(), nombre: `Tipo ${id}`,
+      horaInicio: "06:00", horaFin: "14:00", duracionMinutos: 480, duracionEfectivaMinutos: 450,
+      esPartido: false, esNocturno: false, estado: "activo", tiposDiaAplicables: ["laborable"],
+      creadoPor: "system-seed", creadoEn: FieldValue.serverTimestamp(),
+    });
+  }
   // Limpieza idempotente de cuadrantes + asignaciones previas del seed.
   await deleteCollection("cuadrantes", "tenantId", TENANT_ID);
   await deleteCollection("asignaciones", "tenantId", TENANT_ID);
 }
+
+// Conductores del seed: id → centro. Los del CENTRO_ACTIVO los usan los casos
+// AS*/R8/E*; `cond_otro_centro` (CENTRO_OTRO) prueba el rechazo por centro.
+const SEED_CONDUCTORES = {
+  cond_test_b26: CENTRO_ACTIVO,
+  cond_vac: CENTRO_ACTIVO,
+  cond_del: CENTRO_ACTIVO,
+  cond_jefe: CENTRO_ACTIVO,
+  c_reopen: CENTRO_ACTIVO,
+  cond_e_a: CENTRO_ACTIVO,
+  cond_e_b: CENTRO_ACTIVO,
+  cond_e_c: CENTRO_ACTIVO,
+  cond_otro_centro: CENTRO_OTRO,
+};
+const SEED_TIPOS_TURNO = {
+  tt_test_b26: CENTRO_ACTIVO,
+  tt_e_2: CENTRO_ACTIVO,
+  tt_otro_centro: CENTRO_OTRO,
+};
 
 // ============================================================================
 //  Runner
@@ -527,6 +566,81 @@ async function main() {
       record("R9 (re-publicar tras reabrir)", "estado=publicado, sellos re-puestos",
         `estado=${d.estado}, fechaPub=${d.fechaPublicacion !== undefined}, publicadoPor=${d.publicadoPor}`, ok);
     }
+  }
+
+  // ==========================================================================
+  console.log("\n=== B33.2: validación estructural de asignaciones manuales ===\n");
+  // ==========================================================================
+  const ID_E = cuadId(CENTRO_ACTIVO, 2026, 10);
+  await invokeCallable(U_CREAR, { tenantId: TENANT_ID, centroId: CENTRO_ACTIVO, año: 2026, mes: 10 }, tAdmin);
+  const eBase = { cuadranteId: ID_E, tipoAsignacion: "turno", tipoTurnoId: "tt_test_b26", horaInicio: "06:00", horaFin: "14:00" };
+
+  // E1 — crear turno a cond_e_a el día 5 (OK)
+  let idA5 = null;
+  {
+    const r = await invokeCallable(U_CREAR_ASIG, { ...eBase, conductorId: "cond_e_a", fecha: "2026-10-05" }, tJefe);
+    idA5 = r.ok ? r.body.asignacionId : null;
+    record("E1 (crear turno cond_e_a día 5)", "ok", r.ok ? "ok" : `error: ${r.message}`, r.ok);
+  }
+  // E2 — segundo turno al mismo conductor el mismo día → R1 rechazado
+  await invokeCallable(U_CREAR_ASIG, { ...eBase, conductorId: "cond_e_a", fecha: "2026-10-05", tipoTurnoId: "tt_e_2" }, tJefe)
+    .then((r) => expectError("E2 (doble turno mismo día, crear)", "FAILED_PRECONDITION", r, (x) => /ya tiene una asignación el 2026-10-05/i.test(x.message)));
+  // E3 — mismo conductor, día 6 (OK)
+  let idA6 = null;
+  {
+    const r = await invokeCallable(U_CREAR_ASIG, { ...eBase, conductorId: "cond_e_a", fecha: "2026-10-06" }, tJefe);
+    idA6 = r.ok ? r.body.asignacionId : null;
+    record("E3 (crear turno cond_e_a día 6)", "ok", r.ok ? "ok" : `error: ${r.message}`, r.ok);
+  }
+  // E4 — mover la del día 6 al día 5 (ocupado) → rechazado
+  await invokeCallable(U_ACT_ASIG, { asignacionId: idA6, fecha: "2026-10-05" }, tJefe)
+    .then((r) => expectError("E4 (update a día ocupado)", "FAILED_PRECONDITION", r, (x) => /ya tiene una asignación/i.test(x.message)));
+  // E5 — update sobre sí misma sin mover (cambia horas, misma fecha explícita) → OK (excludeId)
+  {
+    const r = await invokeCallable(U_ACT_ASIG, { asignacionId: idA6, fecha: "2026-10-06", horaFin: "15:00" }, tJefe);
+    record("E5 (update sobre sí misma, excludeId)", "ok", r.ok ? "ok" : `error: ${r.message}`, r.ok);
+  }
+  // E6 — crear turno a cond_e_b día 6 (OK)
+  let idB6 = null;
+  {
+    const r = await invokeCallable(U_CREAR_ASIG, { ...eBase, conductorId: "cond_e_b", fecha: "2026-10-06" }, tJefe);
+    idB6 = r.ok ? r.body.asignacionId : null;
+    record("E6 (crear turno cond_e_b día 6)", "ok", r.ok ? "ok" : `error: ${r.message}`, r.ok);
+  }
+  // E7 — reasignar la de cond_e_b (día 6) a cond_e_a, que ya tiene el día 6 → rechazado
+  await invokeCallable(U_ACT_ASIG, { asignacionId: idB6, conductorId: "cond_e_a" }, tJefe)
+    .then((r) => expectError("E7 (update conductor a uno ocupado)", "FAILED_PRECONDITION", r, (x) => /ya tiene una asignación el 2026-10-06/i.test(x.message)));
+  // E8 — reasignar a cond_e_c (libre) → OK
+  {
+    const r = await invokeCallable(U_ACT_ASIG, { asignacionId: idB6, conductorId: "cond_e_c" }, tJefe);
+    const d = (await getAsig(idB6)) || {};
+    record("E8 (update conductor a uno libre)", "ok, conductorId=cond_e_c", r.ok ? `ok, conductorId=${d.conductorId}` : `error: ${r.message}`, r.ok && d.conductorId === "cond_e_c");
+  }
+  // E9 — conductor de otro centro
+  await invokeCallable(U_CREAR_ASIG, { ...eBase, conductorId: "cond_otro_centro", fecha: "2026-10-07" }, tJefe)
+    .then((r) => expectError("E9 (conductor de otro centro)", "INVALID_ARGUMENT", r, (x) => /no pertenece a este centro/i.test(x.message)));
+  // E10 — conductor inexistente
+  await invokeCallable(U_CREAR_ASIG, { ...eBase, conductorId: "cond_inexistente_b33", fecha: "2026-10-07" }, tJefe)
+    .then((r) => expectError("E10 (conductor inexistente)", "INVALID_ARGUMENT", r, (x) => /conductor 'cond_inexistente_b33' no existe/i.test(x.message)));
+  // E11 — tipo de turno de otro centro
+  await invokeCallable(U_CREAR_ASIG, { ...eBase, conductorId: "cond_e_c", fecha: "2026-10-07", tipoTurnoId: "tt_otro_centro" }, tJefe)
+    .then((r) => expectError("E11 (tipoTurno de otro centro)", "INVALID_ARGUMENT", r, (x) => /tipo de turno 'tt_otro_centro' no pertenece/i.test(x.message)));
+  // E12 — tipo de turno inexistente
+  await invokeCallable(U_CREAR_ASIG, { ...eBase, conductorId: "cond_e_c", fecha: "2026-10-07", tipoTurnoId: "tt_inexistente_b33" }, tJefe)
+    .then((r) => expectError("E12 (tipoTurno inexistente)", "INVALID_ARGUMENT", r, (x) => /tipo de turno 'tt_inexistente_b33' no existe/i.test(x.message)));
+  // E13 — update tipoTurnoId a uno de otro centro
+  await invokeCallable(U_ACT_ASIG, { asignacionId: idA5, tipoTurnoId: "tt_otro_centro" }, tJefe)
+    .then((r) => expectError("E13 (update tipoTurno otro centro)", "INVALID_ARGUMENT", r, (x) => /no pertenece/i.test(x.message)));
+  // E14 — vacaciones sin tipoTurnoId (no se valida tipo de turno) → OK
+  {
+    const r = await invokeCallable(U_CREAR_ASIG, { cuadranteId: ID_E, conductorId: "cond_e_c", fecha: "2026-10-08", tipoAsignacion: "vacaciones", horaInicio: "00:00", horaFin: "23:59" }, tJefe);
+    record("E14 (vacaciones sin tipoTurnoId)", "ok", r.ok ? "ok" : `error: ${r.message}`, r.ok);
+  }
+  // E15 — quitar la del día 5 y volver a crear ese día → OK (R1 ya no bloquea)
+  {
+    const del = await invokeCallable(U_DEL_ASIG, { asignacionId: idA5 }, tJefe);
+    const r = await invokeCallable(U_CREAR_ASIG, { ...eBase, conductorId: "cond_e_a", fecha: "2026-10-05", tipoTurnoId: "tt_e_2" }, tJefe);
+    record("E15 (quitar y reasignar mismo día)", "ok", del.ok && r.ok ? "ok" : `del=${del.ok} crear=${r.ok ? "ok" : r.message}`, del.ok && r.ok);
   }
 
   // ==========================================================================
