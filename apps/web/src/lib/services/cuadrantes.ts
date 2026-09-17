@@ -94,6 +94,39 @@ export async function crearCuadrante(
   return res.data;
 }
 
+// ---------------------------------------------------------------------------
+//  Ciclo de vida: publicar / cerrar / reabrir (B33.1, callables B26 + B33.1,
+//  us-central1). Los tres comparten payload `{cuadranteId}` y resultado
+//  `{ok, cuadranteId}`. El onSnapshot de suscribirCuadrante refleja el nuevo
+//  `estado` sin recarga.
+// ---------------------------------------------------------------------------
+
+export interface CuadranteIdInput {
+  cuadranteId: string;
+}
+export interface CuadranteIdResult {
+  ok: true;
+  cuadranteId: string;
+}
+
+function callableCicloVida(nombre: string) {
+  return async (input: CuadranteIdInput): Promise<CuadranteIdResult> => {
+    const fn = httpsCallable<CuadranteIdInput, CuadranteIdResult>(
+      functions,
+      nombre,
+    );
+    const res = await fn(input);
+    return res.data;
+  };
+}
+
+/** borrador → publicado. Congela las asignaciones (solo se editan en borrador). */
+export const publicarCuadrante = callableCicloVida('publicarCuadrante');
+/** publicado → cerrado. Definitivo: no se reabre. */
+export const cerrarCuadrante = callableCicloVida('cerrarCuadrante');
+/** publicado → borrador. Salida de emergencia de publicar (B33.1). */
+export const reabrirCuadrante = callableCicloVida('reabrirCuadrante');
+
 // ============================================================================
 //  LECTURA
 // ============================================================================

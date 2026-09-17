@@ -21,6 +21,9 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import NoAutorizadoView from '@/components/shared/NoAutorizadoView';
+import CambiarEstadoCuadranteDialog, {
+  type AccionCuadrante,
+} from '@/components/cuadrante/CambiarEstadoCuadranteDialog';
 import { useAuth } from '@/contexts/AuthContext';
 import { mapCallableError } from '@/lib/callable-errors';
 import {
@@ -39,6 +42,12 @@ import type { Asignacion, Cuadrante, EstadoGeneracion } from '@albius/shared';
  * existe, y lo GENERA con el optimizador. La generación es ASÍNCRONA (~5 min):
  * el callable devuelve en <1s y el plan llega vía onSnapshot (estadoGeneracion
  * 'generando'→'completado'/'error'). El botón NO espera el plan.
+ *
+ * Ciclo de vida (B33.1): publicar (borrador→publicado, congela las asignaciones;
+ * la edición post-publicación es Intercambios), cerrar (publicado→cerrado,
+ * definitivo) y reabrir (publicado→borrador, salida de emergencia). Los tres
+ * pasan por CambiarEstadoCuadranteDialog; el onSnapshot refleja el nuevo
+ * estado sin recarga.
  *
  * Gate D4.13 (split): el componente exportado solo hace useAuth + gate a
  * jefe_trafico; los hooks viven en el Authorized. (El super_admin tiene el link
@@ -77,6 +86,9 @@ function CuadrantePageAuthorized({
   const [cargandoAsig, setCargandoAsig] = useState(false);
   const [lanzando, setLanzando] = useState(false);
   const [accionError, setAccionError] = useState<string | null>(null);
+  const [accionCicloVida, setAccionCicloVida] = useState<AccionCuadrante | null>(
+    null,
+  );
 
   const id = centroId ? cuadranteIdDe(centroId, año, mes) : null;
   const estadoGen: EstadoGeneracion = cuadrante?.estadoGeneracion ?? 'idle';
@@ -207,6 +219,7 @@ function CuadrantePageAuthorized({
             estadoGen={estadoGen}
             generando={generando}
             onGenerar={handleGenerar}
+            onAccion={setAccionCicloVida}
           />
 
           {estadoGen === 'error' && cuadrante.errorGeneracion && (
@@ -230,6 +243,15 @@ function CuadrantePageAuthorized({
           )}
         </>
       )}
+
+      <CambiarEstadoCuadranteDialog
+        target={
+          accionCicloVida && id
+            ? { cuadranteId: id, accion: accionCicloVida, mesLabel: mesLabel(año, mes) }
+            : null
+        }
+        onClose={() => setAccionCicloVida(null)}
+      />
     </section>
   );
 }
@@ -296,13 +318,19 @@ function EstadoCuadranteCard({
   estadoGen,
   generando,
   onGenerar,
+  onAccion,
 }: {
   cuadrante: Cuadrante;
   estadoGen: EstadoGeneracion;
   generando: boolean;
   onGenerar: () => void;
+  onAccion: (accion: AccionCuadrante) => void;
 }) {
   const esBorrador = cuadrante.estado === 'borrador';
+  const esPublicado = cuadrante.estado === 'publicado';
+  // Publicar solo con plan generado y sin generación en curso (el callable
+  // rechaza 'generando'; la UI no ofrece el botón en ese caso).
+  const puedePublicar = esBorrador && estadoGen === 'completado';
   return (
     <Card>
       <CardHeader>
@@ -324,10 +352,23 @@ function EstadoCuadranteCard({
             esta página; el progreso se guarda.
           </div>
         ) : !esBorrador ? (
-          <p className="text-sm text-muted-foreground">
-            El cuadrante está {cuadrante.estado}; la generación solo se ejecuta
-            sobre un borrador.
-          </p>
+          <>
+            <p className="text-sm text-muted-foreground">
+              {esPublicado
+                ? 'El cuadrante está publicado: las asignaciones no se pueden editar ni regenerar. Reábrelo si necesitas cambios, o ciérralo cuando el mes haya terminado.'
+                : 'El cuadrante está cerrado. Es definitivo: no se puede reabrir ni editar.'}
+            </p>
+            {esPublicado && (
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" onClick={() => onAccion('reabrir')}>
+                  Reabrir
+                </Button>
+                <Button variant="destructive" onClick={() => onAccion('cerrar')}>
+                  Cerrar cuadrante
+                </Button>
+              </div>
+            )}
+          </>
         ) : (
           <>
             <p className="text-sm text-muted-foreground">
@@ -337,14 +378,25 @@ function EstadoCuadranteCard({
                   ? 'Reintenta la generación.'
                   : 'Lanza el optimizador para asignar conductores a turnos.'}
             </p>
-            <Button onClick={onGenerar} disabled={generando}>
-              {generando && <Loader2 className="mr-2 size-4 animate-spin" />}
-              {estadoGen === 'completado'
-                ? 'Volver a generar'
-                : estadoGen === 'error'
-                  ? 'Reintentar generación'
-                  : 'Generar con optimizador'}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={onGenerar} disabled={generando}>
+                {generando && <Loader2 className="mr-2 size-4 animate-spin" />}
+                {estadoGen === 'completado'
+                  ? 'Volver a generar'
+                  : estadoGen === 'error'
+                    ? 'Reintentar generación'
+                    : 'Generar con optimizador'}
+              </Button>
+              {puedePublicar && (
+                <Button
+                  variant="outline"
+                  onClick={() => onAccion('publicar')}
+                  disabled={generando}
+                >
+                  Publicar
+                </Button>
+              )}
+            </div>
           </>
         )}
       </CardContent>

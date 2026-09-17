@@ -53,6 +53,16 @@ export const publicarCuadrante = onCall(async (request) => {
     );
   }
 
+  // B33.1: no se publica con el optimizador en marcha. Sin este guard, el worker
+  // (~5 min después) chocaría con assertCuadranteEditable al volcar el plan,
+  // marcaría estadoGeneracion='error' y dejaría un cuadrante publicado y vacío.
+  if (doc.estadoGeneracion === "generando") {
+    throw new HttpsError(
+      "failed-precondition",
+      `No se puede publicar el cuadrante '${cuadranteId}': hay una generación en curso. Espera a que termine.`,
+    );
+  }
+
   logger.info("Publicando cuadrante", {
     cuadranteId,
     invocadorUid,

@@ -30,6 +30,7 @@ const url = (fn) => `http://${FUNCTIONS_HOST}/${PROJECT_ID}/${REGION}/${fn}`;
 const U_CREAR = url("crearCuadrante");
 const U_PUBLICAR = url("publicarCuadrante");
 const U_CERRAR = url("cerrarCuadrante");
+const U_REABRIR = url("reabrirCuadrante");
 const U_CREAR_ASIG = url("crearAsignacion");
 const U_ACT_ASIG = url("actualizarAsignacion");
 const U_DEL_ASIG = url("eliminarAsignacion");
@@ -460,6 +461,73 @@ async function main() {
   // L8 — cerrar un cuadrante en borrador (ID_JEFE sigue borrador) → no permitido
   await invokeCallable(U_CERRAR, { cuadranteId: ID_JEFE }, tAdmin)
     .then((r) => expectError("L8 (cerrar borrador)", "FAILED_PRECONDITION", r, (x) => /publicado/i.test(x.message)));
+
+  // ==========================================================================
+  console.log("\n=== B33.1: publicar con generación en curso + reabrirCuadrante ===\n");
+  // ==========================================================================
+  // Estado al llegar aquí: ID_LIFE=cerrado, ID_BORR=publicado, ID_JEFE=borrador,
+  // ID_OTRO=borrador (otro centro).
+
+  // P1 — publicar con estadoGeneracion='generando' → rechazado (guard B33.1)
+  await db.collection("cuadrantes").doc(ID_JEFE).update({ estadoGeneracion: "generando" });
+  await invokeCallable(U_PUBLICAR, { cuadranteId: ID_JEFE }, tAdmin)
+    .then((r) => expectError("P1 (publicar con generando)", "FAILED_PRECONDITION", r, (x) => /generación en curso/i.test(x.message)));
+  {
+    const d = (await getCuad(ID_JEFE)) || {};
+    record("P1b (sigue borrador tras rechazo)", "estado=borrador", `estado=${d.estado}`, d.estado === "borrador");
+  }
+  await db.collection("cuadrantes").doc(ID_JEFE).update({ estadoGeneracion: "completado" });
+
+  // R1 — reabrir desde borrador → rechazado
+  await invokeCallable(U_REABRIR, { cuadranteId: ID_JEFE }, tAdmin)
+    .then((r) => expectError("R1 (reabrir borrador)", "FAILED_PRECONDITION", r, (x) => /publicado/i.test(x.message)));
+  // R2 — reabrir desde cerrado → rechazado (cerrado es definitivo)
+  await invokeCallable(U_REABRIR, { cuadranteId: ID_LIFE }, tAdmin)
+    .then((r) => expectError("R2 (reabrir cerrado)", "FAILED_PRECONDITION", r, (x) => /definitivo/i.test(x.message)));
+  // R3 — reabrir inexistente
+  await invokeCallable(U_REABRIR, { cuadranteId: "cua_inexistente_b33" }, tAdmin)
+    .then((r) => expectError("R3 (reabrir inexistente)", "INVALID_ARGUMENT", r, (x) => /no existe/i.test(x.message)));
+  // R4 — anónimo
+  await invokeCallable(U_REABRIR, { cuadranteId: ID_BORR }, null)
+    .then((r) => expectError("R4 (reabrir anónimo)", "UNAUTHENTICATED", r));
+  // R5 — conductor
+  await invokeCallable(U_REABRIR, { cuadranteId: ID_BORR }, tCond)
+    .then((r) => expectError("R5 (reabrir conductor)", "PERMISSION_DENIED", r));
+  // R6 — anti-cross: jefe reabre cuadrante publicado de OTRO centro
+  await invokeCallable(U_PUBLICAR, { cuadranteId: ID_OTRO }, tAdmin);
+  await invokeCallable(U_REABRIR, { cuadranteId: ID_OTRO }, tJefe)
+    .then((r) => expectError("R6 (jefe reabre otro centro)", "PERMISSION_DENIED", r, (x) => /otro centro o tenant/i.test(x.message)));
+  // R7 — jefe reabre publicado de su centro → OK, vuelve a borrador y limpia sellos de publicación
+  {
+    const r = await invokeCallable(U_REABRIR, { cuadranteId: ID_BORR }, tJefe);
+    if (!r.ok) record("R7 (jefe reabre su centro)", "ok", `error: ${r.message}`, false);
+    else {
+      const d = (await getCuad(ID_BORR)) || {};
+      const ok =
+        d.estado === "borrador" &&
+        d.fechaPublicacion === undefined &&
+        d.publicadoPor === undefined &&
+        d.actualizadoPor === "jefe_b26_uid";
+      record("R7 (jefe reabre su centro)", "estado=borrador, fechaPublicacion/publicadoPor ausentes, actualizadoPor=jefe",
+        `estado=${d.estado}, fechaPub=${d.fechaPublicacion !== undefined}, publicadoPor=${d.publicadoPor}, actualizadoPor=${d.actualizadoPor}`, ok);
+    }
+  }
+  // R8 — tras reabrir, las asignaciones vuelven a ser editables
+  {
+    const r = await invokeCallable(U_CREAR_ASIG, { ...asigBase, conductorId: "c_reopen" }, tAdmin);
+    record("R8 (crear asignación tras reabrir)", "ok", r.ok ? "ok" : `error: ${r.message}`, r.ok);
+  }
+  // R9 — re-publicar tras reabrir → OK y vuelve a sellar
+  {
+    const r = await invokeCallable(U_PUBLICAR, { cuadranteId: ID_BORR }, tAdmin);
+    if (!r.ok) record("R9 (re-publicar tras reabrir)", "ok", `error: ${r.message}`, false);
+    else {
+      const d = (await getCuad(ID_BORR)) || {};
+      const ok = d.estado === "publicado" && d.fechaPublicacion !== undefined && d.publicadoPor === "admin_b26_uid";
+      record("R9 (re-publicar tras reabrir)", "estado=publicado, sellos re-puestos",
+        `estado=${d.estado}, fechaPub=${d.fechaPublicacion !== undefined}, publicadoPor=${d.publicadoPor}`, ok);
+    }
+  }
 
   // ==========================================================================
   console.log("\n=========================");

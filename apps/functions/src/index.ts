@@ -51,6 +51,7 @@ export { guardarConvenio } from "./callables/guardarConvenio";
 export { crearCuadrante } from "./callables/crearCuadrante";
 export { publicarCuadrante } from "./callables/publicarCuadrante";
 export { cerrarCuadrante } from "./callables/cerrarCuadrante";
+export { reabrirCuadrante } from "./callables/reabrirCuadrante";
 export { crearAsignacion } from "./callables/crearAsignacion";
 export { actualizarAsignacion } from "./callables/actualizarAsignacion";
 export { eliminarAsignacion } from "./callables/eliminarAsignacion";
