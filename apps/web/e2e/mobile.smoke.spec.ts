@@ -96,7 +96,10 @@ test('menú Exportar del Calendario a 375px (B36.1-B36.3)', async ({ page }) => 
   const item = page.getByRole('menuitem', { name: /CSV/ });
   await expect(item).toBeVisible();
   await expect(page.getByRole('menuitem', { name: /^Excel/ })).toBeVisible();
-  await expect(page.getByRole('menuitem', { name: /^PDF A4/ })).toBeVisible();
+  // B36.4: los PDF van en un submenú (A4 · A3 · Semanal).
+  await expect(page.getByRole('menuitem', { name: /^PDF/ })).toBeVisible();
+  await page.getByRole('menuitem', { name: /^PDF/ }).click();
+  await expect(page.getByRole('menuitem', { name: /^Semanal/ })).toBeVisible();
   expect(await sinOverflowHorizontal(page), 'overflow con el menú abierto').toBe(true);
   await page.keyboard.press('Escape');
   await expect(item).toBeHidden();

@@ -64,6 +64,75 @@ function generarPassword() {
 
 const ACTOR = "seed-caso-prueba"; // creadoPor (paralelo a 'bootstrap-cli')
 
+// B36.4 — Nombres y apellidos castellanos PLAUSIBLES E INVENTADOS para los 60
+// conductores (índice = nº de empleado - 1). Antes eran "Conductor NN, Prueba
+// NN": redundante y sin longitud real, con lo que la columna del nombre de las
+// exportaciones nunca se tensaba. NUNCA usar los nombres reales de los PDFs de
+// TUCARSA. Hay compuestos largos a propósito (03, 17, 29, 41, 52) para probar
+// el truncado de la columna Conductor en el PDF mensual.
+const NOMBRES_CONDUCTORES = [
+  ["Antonio", "García López"],
+  ["Manuel", "Martínez Ruiz"],
+  ["María del Carmen", "Rodríguez de la Fuente"],
+  ["José", "Sánchez Pérez"],
+  ["Francisco", "Gómez Martín"],
+  ["Juan Carlos", "Jiménez Hernández"],
+  ["Ana", "Díaz Moreno"],
+  ["Pedro", "Álvarez Muñoz"],
+  ["Carmen", "Romero Alonso"],
+  ["Luis", "Gutiérrez Navarro"],
+  ["Javier", "Torres Domínguez"],
+  ["Isabel", "Vázquez Ramos"],
+  ["Miguel Ángel", "Gil Serrano"],
+  ["Rafael", "Blanco Molina"],
+  ["Dolores", "Castro Ortega"],
+  ["Ángel", "Delgado Rubio"],
+  ["Francisco Javier", "Fernández-Ballesteros Iglesias"],
+  ["Rosa", "Marín Sanz"],
+  ["Alberto", "Núñez Medina"],
+  ["Pilar", "Garrido Cortés"],
+  ["Sergio", "Iglesias Castillo"],
+  ["Cristina", "Lozano Guerrero"],
+  ["Fernando", "Cano Prieto"],
+  ["Lucía", "Méndez Calvo"],
+  ["Andrés", "Vega Herrera"],
+  ["Beatriz", "Peña León"],
+  ["Jorge", "Flores Cabrera"],
+  ["Marta", "Campos Vidal"],
+  ["Osvaldo Manuel", "Rodríguez Sánchez de Toledo"],
+  ["Raúl", "Reyes Fuentes"],
+  ["Elena", "Carrasco Pascual"],
+  ["Daniel", "Aguilar Santos"],
+  ["Silvia", "Cruz Montero"],
+  ["Óscar", "Ortiz Lorenzo"],
+  ["Nuria", "Rubio Soler"],
+  ["Ignacio", "Ferrer Bravo"],
+  ["Sonia", "Esteban Crespo"],
+  ["Roberto", "Vicente Mora"],
+  ["Inmaculada", "Pastor Sáez"],
+  ["Emilio", "Benítez Arias"],
+  ["María de los Ángeles", "Villanueva Carmona"],
+  ["Alejandro", "Nieto Lara"],
+  ["Teresa", "Caballero Rey"],
+  ["Víctor", "Ibáñez Otero"],
+  ["Mercedes", "Vargas Galán"],
+  ["Rubén", "Redondo Pardo"],
+  ["Yolanda", "Marcos Bermúdez"],
+  ["Tomás", "Soto Roldán"],
+  ["Esther", "Parra Escudero"],
+  ["Enrique", "Sáenz Camacho"],
+  ["Verónica", "Lara Segura"],
+  ["Juan Francisco", "Hernández de la Cruz Quintana"],
+  ["Gloria", "Robles Ponce"],
+  ["Adrián", "Salas Barrios"],
+  ["Eva", "Trujillo Casado"],
+  ["Ramón", "Ríos Gallardo"],
+  ["Lorena", "Mateo Peláez"],
+  ["Julián", "Naranjo Valero"],
+  ["Patricia", "Ruiz Lorente"],
+  ["Gonzalo", "Herrero Zamora"],
+];
+
 // Convenio (valores validados con el motor por el arquitecto).
 const CONVENIO = {
   descansoMinimoEntreJornadasHoras: 12,
@@ -415,6 +484,8 @@ function buildConductores(catalogo, FieldValue, Timestamp) {
     ];
     const numeroEmpleado = String(i).padStart(2, "0");
     const id = `${TENANT_ID}_${numeroEmpleado}`;
+    const [nombre, apellidos] = NOMBRES_CONDUCTORES[idx];
+    if (!nombre || !apellidos) throw new Error(`Falta nombre para el conductor ${numeroEmpleado}.`);
     conductores.push({
       id,
       doc: {
@@ -422,8 +493,8 @@ function buildConductores(catalogo, FieldValue, Timestamp) {
         tenantId: TENANT_ID,
         centroId: CENTRO_ID,
         numeroEmpleado,
-        nombre: `Conductor ${numeroEmpleado}`,
-        apellidos: `Prueba ${numeroEmpleado}`,
+        nombre,
+        apellidos,
         dni: dniFor(i),
         categoria: "conductor",
         fechaAntiguedad: Timestamp.fromDate(new Date(Date.UTC(2018, 0, 1))),

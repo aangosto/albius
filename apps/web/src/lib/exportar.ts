@@ -113,6 +113,21 @@ export function etiquetaConductorExport(fila: Rejilla['filas'][number]): string 
 }
 
 /**
+ * Etiqueta COMPACTA para columnas estrechas (PDF mensual, B36.4):
+ * "Apellidos, N. (nº empleado)". Los apellidos + el nº de empleado son lo que
+ * identifica a una persona en una empresa de transporte; la inicial del nombre
+ * desempata homónimos de apellidos sin gastar ancho. Si la fila no resolvió el
+ * conductor, devuelve la etiqueta normal.
+ */
+export function etiquetaConductorCompacta(fila: Rejilla['filas'][number]): string {
+  const c = fila.conductor;
+  if (!c) return etiquetaConductorExport(fila);
+  const inicial = c.nombre.trim().charAt(0).toUpperCase();
+  const base = inicial ? `${c.apellidos.trim()}, ${inicial}.` : c.apellidos.trim();
+  return fila.numeroEmpleado ? `${base} (${fila.numeroEmpleado})` : base;
+}
+
+/**
  * CSV del cuadrante completo: cabecera con centro / mes / estado / generación,
  * una línea en blanco, y la tabla conductor × día (una columna por día del mes,
  * cabecera "1 M", "2 X"…).

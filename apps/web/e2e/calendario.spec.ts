@@ -318,12 +318,37 @@ test.describe('Calendario · Exportar Excel (B36.2)', () => {
   });
 });
 
-test.describe('Calendario · Exportar PDF (B36.3)', () => {
+test.describe('Calendario · Exportar PDF (B36.3 + B36.4)', () => {
   test.beforeEach(async ({ page }) => {
     resetConductoresB22();
     resetCuadranteB33('borrador');
     await irAlCalendario(page);
   });
+
+  /**
+   * Exportar → submenú PDF (B36.4: A4 · A3 · Semanal) → item, devolviendo la
+   * descarga. El puntero se mueve del disparador al item con TRAYECTORIA
+   * CONTINUA (`steps`): el submenú de Radix se cierra si el puntero "salta"
+   * fuera del disparador sin pasar por su zona de gracia hacia el contenido
+   * (lo que hace `locator.click()`, que teletransporta el ratón); un usuario
+   * real mueve el ratón de forma continua y el submenú aguanta.
+   */
+  const descargarPdf = async (page: Page, item: RegExp) => {
+    await page.getByRole('button', { name: 'Exportar' }).click();
+    const disparador = page.getByRole('menuitem', { name: /^PDF/ });
+    const bt = (await disparador.boundingBox())!;
+    await page.mouse.move(bt.x + bt.width / 2, bt.y + bt.height / 2, { steps: 10 });
+    const objetivo = page.getByRole('menuitem', { name: item });
+    await expect(objetivo).toBeVisible();
+    const bo = (await objetivo.boundingBox())!;
+    await page.mouse.move(bo.x + bo.width / 2, bo.y + bo.height / 2, { steps: 25 });
+    await expect(objetivo).toBeVisible();
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.mouse.down().then(() => page.mouse.up()),
+    ]);
+    return download;
+  };
 
   /** Nº de objetos /Type /Page (sin contar /Pages) de un PDF. */
   const contarPaginas = (pdf: Buffer): number =>
@@ -333,10 +358,7 @@ test.describe('Calendario · Exportar PDF (B36.3)', () => {
     page,
   }) => {
     await asignar(page, 'García', 5, 'M-LARGO');
-    await page.getByRole('button', { name: 'Exportar' }).click();
-    const item = page.getByRole('menuitem', { name: /^PDF A4/ });
-    await expect(item).toBeVisible();
-    const [download] = await Promise.all([page.waitForEvent('download'), item.click()]);
+    const download = await descargarPdf(page, /^A4/);
     expect(download.suggestedFilename()).toBe('cuadrante_centro-test_2026-09.pdf');
     const ruta = await download.path();
     expect(ruta).not.toBeNull();
@@ -347,12 +369,23 @@ test.describe('Calendario · Exportar PDF (B36.3)', () => {
   });
 
   test('PDF A3: nombre con sufijo A3 y descarga válida', async ({ page }) => {
-    await page.getByRole('button', { name: 'Exportar' }).click();
-    const item = page.getByRole('menuitem', { name: /^PDF A3/ });
-    const [download] = await Promise.all([page.waitForEvent('download'), item.click()]);
+    const download = await descargarPdf(page, /^A3/);
     expect(download.suggestedFilename()).toBe('cuadrante_centro-test_2026-09_A3.pdf');
     const pdf = readFileSync((await download.path())!);
     expect(pdf.subarray(0, 5).toString('latin1')).toBe('%PDF-');
     expect(contarPaginas(pdf)).toBe(1);
+  });
+
+  test('PDF semanal (B36.4): sufijo _semanal y una página por semana del mes', async ({
+    page,
+  }) => {
+    await asignar(page, 'García', 5, 'M-LARGO');
+    const download = await descargarPdf(page, /^Semanal/);
+    expect(download.suggestedFilename()).toBe('cuadrante_centro-test_2026-09_semanal.pdf');
+    const pdf = readFileSync((await download.path())!);
+    expect(pdf.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+    // Septiembre 2026: semanas naturales recortadas al mes = 1-6, 7-13, 14-20,
+    // 21-27, 28-30 → 5 páginas (3 conductores caben en una página por semana).
+    expect(contarPaginas(pdf)).toBe(5);
   });
 });

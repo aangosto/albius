@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import {
+  CalendarDays,
   ChevronDown,
+  ChevronRight,
   Download,
   FileSpreadsheet,
   FileText,
@@ -9,6 +11,7 @@ import {
 } from 'lucide-react';
 import { DropdownMenu } from 'radix-ui';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import type { Cuadrante, Linea } from '@albius/shared';
 import type { Rejilla } from '@/lib/calendario';
 import {
@@ -19,12 +22,13 @@ import {
 } from '@/lib/exportar';
 
 /**
- * Menú "Exportar" del cuadrante (B36.1 + B36.2 + B36.3). Un solo punto de
- * entrada para los formatos: PDF A4 / A3 (`jspdf` + `jspdf-autotable`), Excel
- * (`exceljs`) y CSV (sin deps). Las librerías se cargan con `import()` al
- * pulsar para que no entren en el bundle inicial. El formato de página del
- * PDF va como dos items planos (A4 para imprimir, A3): lo simple, sin
- * submenú.
+ * Menú "Exportar" del cuadrante (B36.1 → B36.4). Un solo punto de entrada
+ * para los formatos: PDF mensual A4 / A3 y PDF SEMANAL (`jspdf` +
+ * `jspdf-autotable`, B36.4), Excel (`exceljs`) y CSV (sin deps). Las
+ * librerías se cargan con `import()` al pulsar para que no entren en el
+ * bundle inicial. Con tres variantes de PDF los items planos eran cinco: los
+ * PDF van agrupados en un SUBMENÚ "PDF" (A4 · A3 · Semanal) y Excel / CSV
+ * quedan planos.
  *
  * Construido sobre el primitivo DropdownMenu que ya trae `radix-ui` (mismo
  * criterio que `MobileNavDrawer`: sin dependencia nueva, §10). Recibe la
@@ -60,10 +64,13 @@ interface Formato {
   ejecutar: (ctx: ContextoFormato) => Promise<void>;
 }
 
-const FORMATOS: Formato[] = [
+const ITEM_CLASS =
+  'flex cursor-pointer select-none items-start gap-2 rounded-sm px-2 py-1.5 text-sm outline-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground';
+
+const FORMATOS_PDF: Formato[] = [
   {
     id: 'pdf-a4',
-    label: 'PDF A4',
+    label: 'A4 (mes completo)',
     descripcion: 'Para imprimir y colgar. ~30 conductores por página.',
     Icono: Printer,
     ejecutar: async (ctx) => {
@@ -74,7 +81,7 @@ const FORMATOS: Formato[] = [
   },
   {
     id: 'pdf-a3',
-    label: 'PDF A3',
+    label: 'A3 (mes completo)',
     descripcion: 'Mismo formato, letra mayor y más filas por página.',
     Icono: Printer,
     ejecutar: async (ctx) => {
@@ -87,6 +94,24 @@ const FORMATOS: Formato[] = [
       );
     },
   },
+  {
+    id: 'pdf-semanal',
+    label: 'Semanal (A4)',
+    descripcion: 'Una semana por página, 7 columnas. Todo el mes en un PDF.',
+    Icono: CalendarDays,
+    ejecutar: async (ctx) => {
+      const { generarPdfCuadranteSemanal, MIME_PDF } = await import('@/lib/exportarPdf');
+      const bytes = generarPdfCuadranteSemanal(ctx);
+      descargarFichero(
+        nombreFicheroCuadrante(ctx.meta, 'pdf').replace(/\.pdf$/, '_semanal.pdf'),
+        bytes,
+        MIME_PDF,
+      );
+    },
+  },
+];
+
+const FORMATOS: Formato[] = [
   {
     id: 'excel',
     label: 'Excel (.xlsx)',
@@ -148,6 +173,22 @@ export default function ExportarCuadranteMenu({
     }
   };
 
+  const itemFormato = (f: Formato) => (
+    <DropdownMenu.Item
+      key={f.id}
+      className={ITEM_CLASS}
+      onSelect={() => {
+        void ejecutar(f);
+      }}
+    >
+      <f.Icono className="mt-0.5 size-4 shrink-0" />
+      <span className="flex flex-col">
+        <span className="font-medium">{f.label}</span>
+        <span className="text-xs text-muted-foreground">{f.descripcion}</span>
+      </span>
+    </DropdownMenu.Item>
+  );
+
   return (
     <div className="flex items-center gap-2">
       {error && (
@@ -177,23 +218,30 @@ export default function ExportarCuadranteMenu({
               Cuadrante completo · {String(cuadrante.mes).padStart(2, '0')}/
               {cuadrante.año}
             </DropdownMenu.Label>
-            {FORMATOS.map((f) => (
-              <DropdownMenu.Item
-                key={f.id}
-                className="flex cursor-pointer select-none items-start gap-2 rounded-sm px-2 py-1.5 text-sm outline-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground"
-                onSelect={() => {
-                  void ejecutar(f);
-                }}
+            <DropdownMenu.Sub>
+              <DropdownMenu.SubTrigger
+                className={cn(ITEM_CLASS, 'data-[state=open]:bg-accent')}
               >
-                <f.Icono className="mt-0.5 size-4 shrink-0" />
-                <span className="flex flex-col">
-                  <span className="font-medium">{f.label}</span>
+                <Printer className="mt-0.5 size-4 shrink-0" />
+                <span className="flex flex-1 flex-col">
+                  <span className="font-medium">PDF</span>
                   <span className="text-xs text-muted-foreground">
-                    {f.descripcion}
+                    Para el tablón: mes completo o semana a semana.
                   </span>
                 </span>
-              </DropdownMenu.Item>
-            ))}
+                <ChevronRight className="mt-0.5 size-4 shrink-0 opacity-60" />
+              </DropdownMenu.SubTrigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.SubContent
+                  sideOffset={4}
+                  alignOffset={-4}
+                  className="z-50 min-w-60 rounded-md border bg-popover p-1 text-popover-foreground shadow-md outline-none"
+                >
+                  {FORMATOS_PDF.map(itemFormato)}
+                </DropdownMenu.SubContent>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Sub>
+            {FORMATOS.map(itemFormato)}
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>

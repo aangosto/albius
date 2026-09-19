@@ -59,6 +59,57 @@ export function diasDelMes(año: number, mes: number): DiaColumna[] {
   return dias;
 }
 
+/** Semana natural (lunes-domingo) RECORTADA al mes. */
+export interface SemanaDelMes {
+  /** 1..N dentro del mes. */
+  indice: number;
+  /** Los 7 huecos lunes→domingo; `null` si ese día cae fuera del mes. */
+  huecos: (DiaColumna | null)[];
+  /** Días del mes que caen en la semana (1 a 7), en orden. */
+  dias: DiaColumna[];
+  desde: DiaColumna;
+  hasta: DiaColumna;
+}
+
+/**
+ * Semanas naturales lunes→domingo del mes, RECORTADAS a sus días (la primera y
+ * la última pueden ser parciales; nunca se mezclan días de otro cuadrante —
+ * decisión de la vista semanal del Calendario). Los huecos de fuera del mes
+ * quedan a `null` para que la columna del lunes sea siempre la primera.
+ */
+export function semanasDelMes(dias: DiaColumna[]): SemanaDelMes[] {
+  const semanas: SemanaDelMes[] = [];
+  let actual: (DiaColumna | null)[] | null = null;
+  const cerrar = () => {
+    if (!actual) return;
+    while (actual.length < 7) actual.push(null);
+    const propios = actual.filter((d): d is DiaColumna => d !== null);
+    const desde = propios[0];
+    const hasta = propios[propios.length - 1];
+    if (desde && hasta) {
+      semanas.push({
+        indice: semanas.length + 1,
+        huecos: actual,
+        dias: propios,
+        desde,
+        hasta,
+      });
+    }
+    actual = null;
+  };
+  for (const d of dias) {
+    // Lunes = 0 … domingo = 6.
+    const pos = (d.diaSemana + 6) % 7;
+    if (pos === 0 || actual === null) {
+      cerrar();
+      actual = Array.from({ length: pos }, () => null);
+    }
+    actual.push(d);
+  }
+  cerrar();
+  return semanas;
+}
+
 /** Día del mes (1..31) de un Timestamp, en UTC. */
 export function diaDelMesUTC(ts: Timestamp): number {
   return ts.toDate().getUTCDate();
