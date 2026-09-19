@@ -453,6 +453,13 @@ function buildTipos(catalogo, FieldValue) {
   });
 }
 
+/** Índices (0-based) de los 10 conductores ausentes el MES COMPLETO. Constante
+ *  COMPARTIDA: `buildAusencias` los materializa como ausencias y
+ *  `generarHabilitacion` los excluye al medir la cobertura por turno (B32.3:
+ *  buildRequest los saca del pool). Si divergen, el seed sembraría un caso que
+ *  parece cubrible y no lo es. */
+const AUSENTES_TOTALES_IDX = [0, 6, 12, 18, 24, 31, 37, 43, 49, 55];
+
 const DNI_LETTERS = "TRWAGMYFPDXBNJZSQVHLCKE";
 function dniFor(n) {
   const num = 10000000 + n;
@@ -460,28 +467,148 @@ function dniFor(n) {
 }
 
 /**
- * 60 conductores. Habilitación: cada conductor recibe TODOS los turnos de su
- * línea base (i%5) + los de su franja preferida (par→M, impar→T) de la línea
- * adyacente. Versatilidad media ~11 turnos/conductor; cada turno queda habilitado
- * por ~18 conductores (los 12 de su línea base + ~6 de la adyacente). Holgura muy
- * por encima del mínimo ≥4 exigido.
+ * Habilitación REALISTA (B37.1a). Antes cada conductor recibía TODOS los turnos
+ * de su línea base + una franja de la adyacente: ~2/3 de sus plazas candidatas
+ * eran ya de su línea POR DISEÑO. Eso daba una expectativa de indiferencia del
+ * 65,8% (si el motor asignara al azar entre lo que el conductor puede hacer, ya
+ * saldría un 65,8% "en su línea"), cuando en los datos reales de TUCARSA es del
+ * 24,9% (Sample20: 20 conductores reales, 19,1 códigos de media) o del 39,5%
+ * (Sample178, calibrado a la versatilidad real). El banco de pruebas mentía en
+ * toda medición que dependiera de la habilitación — costó una puerta de decisión
+ * en B37.1, donde la línea base de preferencia salió 61,6% y no significaba nada.
+ *
+ * Forma nueva (referencia: SPEC §1.3 del spike + Sample20.json como FORMA, no
+ * como valores): versatilidad triangular(1, 24, moda 8) → media ~11 tipos, con
+ * cola larga por los dos lados; sesgo suave del 35% hacia una "línea de casa"
+ * (rotada, para que las 5 líneas estén representadas) y el resto repartido por
+ * todo el catálogo. Resultado medido: versatilidad 4..22 (media 11,5), cobertura
+ * por turno 12..21 (media 14,8), expectativa de indiferencia 19,7%.
+ *
+ * DETERMINISTA: PRNG propio con semilla fija (el seed tiene que ser reproducible
+ * — un seed aleatorio haría inestables verifies, E2E y mediciones).
  */
+const HABIL_SEMILLA = 20260901;
+const HABIL_VERS_MIN = 1;
+const HABIL_VERS_MAX = 24;
+const HABIL_VERS_MODA = 8;
+/** Fracción de la habilitación que sale de la "línea de casa" del conductor. */
+const HABIL_SESGO_LINEA = 0.35;
+/** Piso de conductores DISPONIBLES habilitados por turno (invariante de
+ *  resolubilidad: con 12 el caso sigue cerrando al 100% de cobertura). */
+const HABIL_COBERTURA_MIN = 12;
+
+/** PRNG determinista (mulberry32): mismo seed → mismos datos, siempre. */
+function mulberry32(a) {
+  return function () {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Distribución triangular (SPEC §1.3: versatilidad 1-24, moda 8). */
+function triangular(rnd, min, max, moda) {
+  const u = rnd();
+  const c = (moda - min) / (max - min);
+  return u < c
+    ? min + Math.sqrt(u * (max - min) * (moda - min))
+    : max - Math.sqrt((1 - u) * (max - min) * (max - moda));
+}
+
+/**
+ * Genera la habilitación y la línea preferente de los 60 conductores.
+ * Devuelve [{ permitidos, lineaPreferente }] indexado por idx (0..59).
+ *
+ * La LÍNEA PREFERENTE se siembra a propósito DISTINTA de la línea modal de la
+ * habilitación: si el conductor prefiriera siempre la línea en la que más puede
+ * trabajar, cualquier medición de "preferencias cumplidas" volvería a estar
+ * sesgada al alza por construcción, que es justo el defecto que este cambio
+ * corrige. Es un sesgo CONSERVADOR (la línea base medida queda por debajo de la
+ * expectativa real), preferible a uno optimista en un banco de pruebas.
+ */
+function generarHabilitacion(catalogo, nConductores, idsAusentesTotalesIdx) {
+  const rnd = mulberry32(HABIL_SEMILLA);
+  const lineas = [...new Set(catalogo.map((t) => t.linea))].sort((a, b) => a - b);
+  const todos = catalogo.map((t) => t.codigo);
+  const lineaDe = Object.fromEntries(catalogo.map((t) => [t.codigo, t.linea]));
+  const porLinea = (l) => catalogo.filter((t) => t.linea === l).map((t) => t.codigo);
+  // Fisher-Yates, NO `sort(() => rnd() - 0.5)`: un comparador aleatorio no es
+  // transitivo y no da una permutación uniforme (el sesgo depende del motor de
+  // JS). En un generador cuyo propósito es quitar un sesgo, importa.
+  const barajar = (arr) => {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(rnd() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  };
+
+  const gen = [];
+  for (let idx = 0; idx < nConductores; idx++) {
+    const lineaCasa = lineas[idx % lineas.length];
+    const k = Math.max(
+      HABIL_VERS_MIN,
+      Math.min(HABIL_VERS_MAX, Math.round(triangular(rnd, HABIL_VERS_MIN, HABIL_VERS_MAX, HABIL_VERS_MODA))),
+    );
+    const sel = new Set();
+    const deCasa = barajar(porLinea(lineaCasa));
+    const nCasa = Math.min(Math.round(k * HABIL_SESGO_LINEA), deCasa.length);
+    for (let i = 0; i < nCasa; i++) sel.add(deCasa[i]);
+    for (const codigo of barajar(todos)) {
+      if (sel.size >= k) break;
+      sel.add(codigo);
+    }
+    gen.push({ idx, lineaCasa, permitidos: [...sel] });
+  }
+
+  // Reparación hasta el piso de cobertura, contando SOLO el pool disponible
+  // (buildRequest excluye a los ausentes el mes completo, B32.3). Se añade el
+  // turno flojo al conductor con menos tipos → sube el piso sin inflar a nadie.
+  const ausentes = new Set(idsAusentesTotalesIdx);
+  const disponibles = gen.filter((g) => !ausentes.has(g.idx));
+  const cobertura = () => {
+    const m = new Map(todos.map((t) => [t, 0]));
+    for (const g of disponibles) for (const t of g.permitidos) m.set(t, m.get(t) + 1);
+    return m;
+  };
+  for (let guard = 0; guard < 5000; guard++) {
+    const flojos = [...cobertura().entries()]
+      .filter(([, v]) => v < HABIL_COBERTURA_MIN)
+      .sort((a, b) => a[1] - b[1]);
+    if (flojos.length === 0) break;
+    const turno = flojos[0][0];
+    const candidatos = disponibles
+      .filter((g) => !g.permitidos.includes(turno))
+      .sort((a, b) => a.permitidos.length - b.permitidos.length);
+    if (candidatos.length === 0) {
+      throw new Error(`No se puede alcanzar la cobertura mínima en el turno ${turno}.`);
+    }
+    candidatos[0].permitidos.push(turno);
+  }
+
+  // Línea preferente: presente en la habilitación pero NO la modal (ver arriba).
+  for (const g of gen) {
+    const cuenta = new Map();
+    for (const t of g.permitidos) cuenta.set(lineaDe[t], (cuenta.get(lineaDe[t]) ?? 0) + 1);
+    const orden = [...cuenta.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0]);
+    const noModales = orden.slice(1).map(([l]) => l);
+    g.lineaPreferente =
+      noModales.length > 0 ? noModales[Math.floor(rnd() * noModales.length)] : orden[0][0];
+    g.permitidos.sort();
+  }
+  return gen;
+}
+
 function buildConductores(catalogo, FieldValue, Timestamp) {
-  const porLineaFranja = (linea, franja) =>
-    catalogo.filter((t) => t.linea === linea && t.franja === franja).map((t) => t.codigo);
-  const porLinea = (linea) =>
-    catalogo.filter((t) => t.linea === linea).map((t) => t.codigo);
+  const habil = generarHabilitacion(catalogo, 60, AUSENTES_TOTALES_IDX);
 
   const conductores = [];
   for (let i = 1; i <= 60; i++) {
     const idx = i - 1;
-    const baseLinea = (idx % 5) + 1;
-    const franjaPref = idx % 2 === 0 ? "M" : "T";
-    const adjLinea = (baseLinea % 5) + 1;
-    const permitidos = [
-      ...porLinea(baseLinea),
-      ...porLineaFranja(adjLinea, franjaPref),
-    ];
+    const { permitidos, lineaPreferente } = habil[idx];
     const numeroEmpleado = String(i).padStart(2, "0");
     const id = `${TENANT_ID}_${numeroEmpleado}`;
     const [nombre, apellidos] = NOMBRES_CONDUCTORES[idx];
@@ -500,7 +627,10 @@ function buildConductores(catalogo, FieldValue, Timestamp) {
         fechaAntiguedad: Timestamp.fromDate(new Date(Date.UTC(2018, 0, 1))),
         fechaIncorporacion: Timestamp.fromDate(new Date(Date.UTC(2018, 1, 1))),
         estado: "activo",
-        lineasPreferentes: [],
+        // B37.1a: hasta aquí iba [] en los 60 — el motor recibía el array vacío
+        // y no había NADA que medir. `lineasSecundarias` sigue a [] a propósito:
+        // no la lee ni el motor (buildRequest no la mapea) ni ninguna medición.
+        lineasPreferentes: [lineaDocId(lineaPreferente)],
         lineasSecundarias: [],
         tiposTurnoPermitidos: permitidos,
         tiposTurnoExcluidos: [],
@@ -551,19 +681,24 @@ function buildAusencias(conductores, FieldValue, Timestamp) {
     });
   };
 
-  // Ausentes el mes completo: 10 de 60 (16.7%). idx 0..59; base línea = idx%5+1.
-  // Se eligen 2 por línea (idx ≡ k mod 5), en filas distintas para no concentrar.
+  // Ausentes el mes completo: 10 de 60 (16.7%), los de AUSENTES_TOTALES_IDX.
+  // Los índices se eligen equiespaciados (uno por cada bloque de 6) para no
+  // concentrar bajas en una misma franja de la plantilla. Desde B37.1a la
+  // habilitación ya no se deriva de idx%5, así que el reparto "2 por línea" que
+  // describía este comentario dejó de tener sentido; lo que SÍ importa es que
+  // `generarHabilitacion` repara la cobertura contando solo el pool disponible,
+  // es decir, excluyendo exactamente a estos índices.
   const totales = [
-    { idx: 0, cat: "vacaciones", cod: "V", ini: ts(ANIO, MES, 1), fin: ts(ANIO, MES, ultimoDia) },
-    { idx: 6, cat: "vacaciones", cod: "V", ini: ts(ANIO, MES, 1), fin: ts(ANIO, MES, ultimoDia) },
-    { idx: 12, cat: "vacaciones", cod: "V", ini: ts(ANIO, MES - 1, 24), fin: ts(ANIO, MES, ultimoDia) }, // empieza en agosto
-    { idx: 18, cat: "vacaciones", cod: "V", ini: ts(ANIO, MES, 1), fin: ts(ANIO, MES + 1, 4) }, // acaba en octubre
-    { idx: 24, cat: "vacaciones", cod: "V", ini: ts(ANIO, MES, 1), fin: ts(ANIO, MES, ultimoDia) },
-    { idx: 31, cat: "baja", cod: "B", ini: ts(ANIO, MES - 2, 15), fin: ts(ANIO, MES + 2, 30), obs: "Baja larga (IT)" }, // envuelve el mes
-    { idx: 37, cat: "baja", cod: "B", ini: ts(ANIO, MES, 1), fin: ts(ANIO, MES, ultimoDia) },
-    { idx: 43, cat: "baja", cod: "B", ini: ts(ANIO, MES - 1, 10), fin: ts(ANIO, MES + 1, 20) }, // envuelve el mes
-    { idx: 49, cat: "vacaciones", cod: "V", ini: ts(ANIO, MES, 1), fin: ts(ANIO, MES, ultimoDia) },
-    { idx: 55, cat: "baja", cod: "B", ini: ts(ANIO, MES, 1), fin: ts(ANIO, MES, ultimoDia) },
+    { idx: AUSENTES_TOTALES_IDX[0], cat: "vacaciones", cod: "V", ini: ts(ANIO, MES, 1), fin: ts(ANIO, MES, ultimoDia) },
+    { idx: AUSENTES_TOTALES_IDX[1], cat: "vacaciones", cod: "V", ini: ts(ANIO, MES, 1), fin: ts(ANIO, MES, ultimoDia) },
+    { idx: AUSENTES_TOTALES_IDX[2], cat: "vacaciones", cod: "V", ini: ts(ANIO, MES - 1, 24), fin: ts(ANIO, MES, ultimoDia) }, // empieza en agosto
+    { idx: AUSENTES_TOTALES_IDX[3], cat: "vacaciones", cod: "V", ini: ts(ANIO, MES, 1), fin: ts(ANIO, MES + 1, 4) }, // acaba en octubre
+    { idx: AUSENTES_TOTALES_IDX[4], cat: "vacaciones", cod: "V", ini: ts(ANIO, MES, 1), fin: ts(ANIO, MES, ultimoDia) },
+    { idx: AUSENTES_TOTALES_IDX[5], cat: "baja", cod: "B", ini: ts(ANIO, MES - 2, 15), fin: ts(ANIO, MES + 2, 30), obs: "Baja larga (IT)" }, // envuelve el mes
+    { idx: AUSENTES_TOTALES_IDX[6], cat: "baja", cod: "B", ini: ts(ANIO, MES, 1), fin: ts(ANIO, MES, ultimoDia) },
+    { idx: AUSENTES_TOTALES_IDX[7], cat: "baja", cod: "B", ini: ts(ANIO, MES - 1, 10), fin: ts(ANIO, MES + 1, 20) }, // envuelve el mes
+    { idx: AUSENTES_TOTALES_IDX[8], cat: "vacaciones", cod: "V", ini: ts(ANIO, MES, 1), fin: ts(ANIO, MES, ultimoDia) },
+    { idx: AUSENTES_TOTALES_IDX[9], cat: "baja", cod: "B", ini: ts(ANIO, MES, 1), fin: ts(ANIO, MES, ultimoDia) },
   ];
   for (const t of totales) push(byIdx(t.idx), t.cat, t.cod, t.ini, t.fin, t.obs);
 
@@ -656,11 +791,32 @@ function checkCoherencia(tipos, conductores, lineas, idsAusentesTotales = new Se
   }
   const cobs = [...cobertura.values()];
   const minCob = Math.min(...cobs);
-  const sinCobertura = [...cobertura.entries()].filter(([, n]) => n < 4);
+  // B37.1a: el piso pasa de 4 (holgura mínima histórica) al que garantiza
+  // `generarHabilitacion`. Con la habilitación realista la cobertura ya no es
+  // un subproducto del diseño "todos los turnos de tu línea", así que este
+  // assert es la red que detecta una regresión del generador ANTES de escribir.
+  const sinCobertura = [...cobertura.entries()].filter(([, n]) => n < HABIL_COBERTURA_MIN);
   if (sinCobertura.length > 0) {
     throw new Error(
-      `COBERTURA INSUFICIENTE (<4 conductores) en: ${sinCobertura.map(([id]) => id).join(", ")}`,
+      `COBERTURA INSUFICIENTE (<${HABIL_COBERTURA_MIN} conductores) en: ` +
+        sinCobertura.map(([id, n]) => `${id}(${n})`).join(", "),
     );
+  }
+  // B37.1a — cuota de la línea preferente DENTRO de la habilitación: es la
+  // "expectativa de indiferencia", el % de asignaciones que caerían en la línea
+  // preferente aunque el motor la ignorase por completo. Es el número que hacía
+  // inútil el banco antiguo (65,8%) y el que hay que vigilar en cada cambio del
+  // generador: si vuelve a dispararse, cualquier medición de preferencias miente.
+  const lineaDeTipo = new Map(tipos.map((t) => [t.id, t.doc.lineaId]));
+  let conPreferente = 0;
+  let sumCuota = 0;
+  for (const c of conductores) {
+    const pref = new Set(c.doc.lineasPreferentes ?? []);
+    if (pref.size > 0) conPreferente += 1;
+    const perm = c.doc.tiposTurnoPermitidos;
+    if (perm.length > 0) {
+      sumCuota += perm.filter((code) => pref.has(lineaDeTipo.get(code))).length / perm.length;
+    }
   }
   return {
     minCobertura: minCob,
@@ -669,6 +825,9 @@ function checkCoherencia(tipos, conductores, lineas, idsAusentesTotales = new Se
     minVersatilidad: minVers,
     maxVersatilidad: maxVers,
     avgVersatilidad: (sumVers / conductores.length).toFixed(1),
+    nConductores: conductores.length,
+    conPreferente,
+    cuotaPreferente: ((sumCuota / conductores.length) * 100).toFixed(1),
   };
 }
 
@@ -888,10 +1047,13 @@ function printResumen(target, r) {
   }
   console.log("\n  --- Coherencia / cobertura (assert OK) ---");
   console.log(
-    `  cobertura por turno (solo disponibles): min=${r.stats.minCobertura} max=${r.stats.maxCobertura} avg=${r.stats.avgCobertura} (mínimo exigido ≥4)`,
+    `  cobertura por turno (solo disponibles): min=${r.stats.minCobertura} max=${r.stats.maxCobertura} avg=${r.stats.avgCobertura} (mínimo exigido ≥${HABIL_COBERTURA_MIN})`,
   );
   console.log(
-    `  versatilidad/conductor: min=${r.stats.minVersatilidad} max=${r.stats.maxVersatilidad} avg=${r.stats.avgVersatilidad}`,
+    `  versatilidad/conductor: min=${r.stats.minVersatilidad} max=${r.stats.maxVersatilidad} avg=${r.stats.avgVersatilidad} (triangular 1-24, B37.1a)`,
+  );
+  console.log(
+    `  línea preferente: ${r.stats.conPreferente}/${r.stats.nConductores} sembrada; cuota media en la habilitación ${r.stats.cuotaPreferente}% (expectativa de indiferencia)`,
   );
   console.log("\n  Login en la web → Cuadrante → mes 09/2026 → 'Generar con optimizador'.");
   console.log("================================================\n");
