@@ -438,7 +438,7 @@ function ConvenioPageAuthorized({
           <div className="flex flex-wrap items-center gap-3">
             <Button type="submit" disabled={submitting || (tocado && hayErrores)}>
               {submitting && <Loader2 className="mr-2 size-4 animate-spin" />}
-              {convenio ? 'Guardar cambios' : 'Guardar convenio'}
+              <span>{convenio ? 'Guardar cambios' : 'Guardar convenio'}</span>
             </Button>
             {tocado && hayErrores && (
               <p className="text-sm text-destructive">

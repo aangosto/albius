@@ -163,7 +163,7 @@ export default function ExportarCuadranteMenu({
             ) : (
               <Download className="size-4" />
             )}
-            Exportar
+            <span>Exportar</span>
             <ChevronDown className="size-3.5 opacity-60" />
           </Button>
         </DropdownMenu.Trigger>

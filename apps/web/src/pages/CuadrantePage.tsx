@@ -310,7 +310,7 @@ function SinCuadrante({
       <CardContent>
         <Button onClick={onCrear} disabled={creando}>
           {creando && <Loader2 className="mr-2 size-4 animate-spin" />}
-          Crear cuadrante borrador
+          <span>Crear cuadrante borrador</span>
         </Button>
       </CardContent>
     </Card>
@@ -408,11 +408,13 @@ function EstadoCuadranteCard({
             <div className="flex flex-wrap gap-2">
               <Button onClick={onGenerar} disabled={generando}>
                 {generando && <Loader2 className="mr-2 size-4 animate-spin" />}
-                {estadoGen === 'completado'
-                  ? 'Volver a generar'
-                  : estadoGen === 'error'
-                    ? 'Reintentar generación'
-                    : 'Generar con optimizador'}
+                <span>
+                  {estadoGen === 'completado'
+                    ? 'Volver a generar'
+                    : estadoGen === 'error'
+                      ? 'Reintentar generación'
+                      : 'Generar con optimizador'}
+                </span>
               </Button>
               {puedePublicar && (
                 <Button
