@@ -104,3 +104,28 @@ test('menú Exportar del Calendario a 375px (B36.1-B36.3)', async ({ page }) => 
   await page.keyboard.press('Escape');
   await expect(item).toBeHidden();
 });
+
+test('la campana de notificaciones no rompe el Topbar a 375px (B38.5)', async ({
+  page,
+}) => {
+  await page.goto('/dashboard');
+  await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+
+  // Los tres controles del Topbar conviven en 375px: hamburguesa, campana y
+  // cerrar sesión (este último, en móvil, solo con el icono).
+  await expect(page.getByRole('button', { name: 'Abrir menú' })).toBeVisible();
+  const campana = page.getByTestId('campana');
+  await expect(campana).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Cerrar sesión' })).toBeVisible();
+  expect(await sinOverflowHorizontal(page), 'overflow con la campana').toBe(true);
+
+  // El panel desplegado tampoco desborda (max-w calc(100vw-1.5rem)).
+  await campana.click();
+  await expect(page.getByTestId('campana-panel')).toBeVisible();
+  expect(
+    await sinOverflowHorizontal(page),
+    'overflow con el panel abierto',
+  ).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('campana-panel')).toHaveCount(0);
+});

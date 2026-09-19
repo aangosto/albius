@@ -3,6 +3,7 @@ import { LogOut, Menu } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import MobileNavDrawer from '@/components/layout/MobileNavDrawer';
+import NotificacionesBell from '@/components/layout/NotificacionesBell';
 import { useAuth } from '@/contexts/AuthContext';
 import { findNavItem, ROL_LABEL } from '@/lib/navigation';
 
@@ -83,7 +84,10 @@ export default function Topbar() {
         )}
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1 sm:gap-2">
+        {/* B38.5: campana. Antes del bloque de identidad para que en móvil
+            quede junto al botón de cerrar sesión y el título siga truncando. */}
+        <NotificacionesBell />
         <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full border border-border">
           <div className="size-7 rounded-full bg-[#2E75B6] text-white text-xs font-semibold flex items-center justify-center">
             {iniciales}

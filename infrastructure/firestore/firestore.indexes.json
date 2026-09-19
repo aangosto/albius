@@ -102,6 +102,14 @@
         { "fieldPath": "centroId", "order": "ASCENDING" },
         { "fieldPath": "fechaInicio", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "notificaciones",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "destinatarioId", "order": "ASCENDING" },
+        { "fieldPath": "fechaCreacion", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

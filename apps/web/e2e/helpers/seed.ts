@@ -114,3 +114,14 @@ export function resetFestivosB35(): void {
     stdio: 'pipe',
   });
 }
+
+/**
+ * Notificaciones (B38.5): deja a conductor@albius.local con 2 sin leer (una
+ * del mes en curso, que sale también en el banner de Mi horario) + 1 leída.
+ * Borra las previas, incluidas las que haya creado `publicarCuadrante`.
+ */
+export function resetNotificacionesB38(): void {
+  execFileSync('node', [path.join(SCRIPTS, 'reset-notificaciones-b38.mjs')], {
+    stdio: 'pipe',
+  });
+}

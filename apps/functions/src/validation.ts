@@ -2942,3 +2942,55 @@ export function validateEliminarAusenciaPayload(data: unknown): {
   };
 }
 
+
+// ============================================================================
+//  NOTIFICACIONES (B38.5)
+// ============================================================================
+
+/**
+ * Tope de ids por invocación de `marcarNotificacionesLeidas`. La campana pide
+ * como mucho `LIMITE` notificaciones (20 hoy), así que 50 deja margen sin
+ * abrir la puerta a un batch abusivo: Firestore admite 500 ops por writeBatch y
+ * el callable escribe 1 op por id.
+ */
+const MAX_NOTIFICACIONES_POR_LOTE = 50;
+
+/**
+ * Valida el payload de `marcarNotificacionesLeidas` (B38.5): array NO vacío de
+ * ids, sin duplicados (un id repetido escribiría dos veces la misma op en el
+ * mismo batch) y con tope de tamaño.
+ */
+export function validateMarcarNotificacionesLeidasPayload(data: unknown): {
+  notificacionIds: string[];
+} {
+  const payload = assertPayloadObject(data, "marcarNotificacionesLeidas");
+  const raw = payload["notificacionIds"];
+  if (!Array.isArray(raw)) {
+    throw new HttpsError(
+      "invalid-argument",
+      "El campo 'notificacionIds' es requerido y debe ser un array de ids.",
+    );
+  }
+  if (raw.length === 0) {
+    throw new HttpsError(
+      "invalid-argument",
+      "El campo 'notificacionIds' no puede estar vacío.",
+    );
+  }
+  if (raw.length > MAX_NOTIFICACIONES_POR_LOTE) {
+    throw new HttpsError(
+      "invalid-argument",
+      `No se pueden marcar más de ${MAX_NOTIFICACIONES_POR_LOTE} notificaciones a la vez (recibidas ${raw.length}).`,
+    );
+  }
+  const notificacionIds = raw.map((id, i) =>
+    assertNonEmptyString(id, `notificacionIds[${i}]`),
+  );
+  if (new Set(notificacionIds).size !== notificacionIds.length) {
+    throw new HttpsError(
+      "invalid-argument",
+      "El campo 'notificacionIds' contiene ids duplicados.",
+    );
+  }
+  return { notificacionIds };
+}

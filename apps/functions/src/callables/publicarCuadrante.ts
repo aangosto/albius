@@ -6,6 +6,7 @@ import type { Cuadrante } from "@albius/shared";
 import { COLLECTIONS } from "../collections";
 import { assertSuperAdminOrJefeTrafico } from "../auth-guards";
 import { validateCuadranteIdPayload } from "../validation";
+import { notificarCuadrantePublicado } from "../logic/notificaciones";
 
 /**
  * Callable publicarCuadrante (B26). Transición de estado 'borrador' → 'publicado'.
@@ -18,6 +19,10 @@ import { validateCuadranteIdPayload } from "../validation";
  *
  * NOTA: los snapshots de versión (versiones_cuadrante) se difieren al bloque de
  * Intercambios; publicar NO incrementa versionActual en B26.
+ *
+ * B38.5: tras sellar la publicación, notifica a los conductores del cuadrante
+ * (best-effort, ver más abajo). Devuelve `notificados` para que el verify y la
+ * UI puedan comprobarlo sin leer la colección.
  */
 export const publicarCuadrante = onCall(async (request) => {
   const { uid: invocadorUid, claims } = assertSuperAdminOrJefeTrafico(request);
@@ -86,5 +91,35 @@ export const publicarCuadrante = onCall(async (request) => {
   }
 
   logger.info("Cuadrante publicado", { cuadranteId });
-  return { ok: true as const, cuadranteId };
+
+  // B38.5 — avisa a los conductores con asignaciones en el cuadrante. BEST
+  // EFFORT: la publicación ya está sellada y es lo que importa; si notificar
+  // falla (query, batch, permisos), NO se revierte ni se propaga el error —
+  // se loggea y el callable devuelve ok. El precio de propagarlo sería que el
+  // jefe viera "error al publicar" sobre un cuadrante que SÍ está publicado.
+  let notificados = 0;
+  try {
+    const res = await notificarCuadrantePublicado(db, {
+      cuadranteId,
+      tenantId: doc.tenantId,
+      centroId: doc.centroId,
+      año: doc.año,
+      mes: doc.mes,
+    });
+    notificados = res.creadas;
+    logger.info("Notificaciones de publicación creadas", {
+      cuadranteId,
+      creadas: res.creadas,
+      // Conductores con asignaciones pero sin cuenta de acceso enlazada: no es
+      // un fallo, pero conviene verlo en los logs si el número no es 0.
+      sinUsuario: res.sinUsuario,
+    });
+  } catch (err) {
+    logger.error("Error notificando la publicación (no bloqueante)", {
+      err,
+      cuadranteId,
+    });
+  }
+
+  return { ok: true as const, cuadranteId, notificados };
 });

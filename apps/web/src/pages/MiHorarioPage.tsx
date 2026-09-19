@@ -7,6 +7,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import NoAutorizadoView from '@/components/shared/NoAutorizadoView';
 import { useAuth } from '@/contexts/AuthContext';
+import { useNotificaciones } from '@/hooks/useNotificaciones';
+import { marcarNotificacionesLeidas } from '@/lib/services/notificaciones';
+import { cuadranteIdDe } from '@/lib/services/cuadrantes';
 import {
   listarCuadrantesVisibles,
   listarMisAsignaciones,
@@ -161,6 +164,8 @@ function MiHorarioAuthorized({
         </div>
       </header>
 
+      <AvisoNotificaciones centroId={centroId} año={año} mes={mes} />
+
       {estado === 'cargando' && (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" /> Cargando…
@@ -195,6 +200,86 @@ function MiHorarioAuthorized({
         <HorarioOk año={año} mes={mes} datos={datos} />
       )}
     </section>
+  );
+}
+
+// ============================================================================
+//  Aviso de notificaciones del mes (B38.5)
+// ============================================================================
+
+/**
+ * Banner de notificaciones NO LEÍDAS que afectan al mes que el conductor está
+ * mirando. La campana del Topbar existe y sirve, pero en móvil es un icono de
+ * 36px en una barra con otros dos botones: el conductor vive en esta página, y
+ * "te han cambiado el turno del jueves" no puede depender de que se fije en un
+ * punto rojo. Aquí ocupa el ancho entero, encima de su horario.
+ *
+ * RELEVANCIA AL MES: se cruza `datosContexto.cuadranteId` con el id
+ * determinista del mes mostrado (`cua_{centroId}_{año}_{mes}`), con respaldo
+ * en `datosContexto.año`/`mes` por si una notificación futura no lleva el id.
+ * Sin ese filtro, al navegar a un mes cualquiera saldría el aviso de otro.
+ *
+ * Marcar como leídas es EXPLÍCITO aquí (botón), no al aparecer: un banner que
+ * se auto-marca al renderizar desaparecería en el siguiente montaje sin que el
+ * conductor haya hecho nada. La campana sí marca al abrir porque abrirla ES el
+ * gesto de leerlas.
+ */
+function AvisoNotificaciones({
+  centroId,
+  año,
+  mes,
+}: {
+  centroId: string;
+  año: number;
+  mes: number;
+}) {
+  const { noLeidas } = useNotificaciones();
+  const [marcando, setMarcando] = useState(false);
+
+  const cuadranteId = cuadranteIdDe(centroId, año, mes);
+  const relevantes = noLeidas.filter((n) => {
+    const ctx = n.datosContexto ?? {};
+    if (typeof ctx['cuadranteId'] === 'string') {
+      return ctx['cuadranteId'] === cuadranteId;
+    }
+    return ctx['año'] === año && ctx['mes'] === mes;
+  });
+
+  if (relevantes.length === 0) return null;
+
+  async function marcarLeidas() {
+    setMarcando(true);
+    try {
+      await marcarNotificacionesLeidas({
+        notificacionIds: relevantes.map((n) => n.id),
+      });
+      // El onSnapshot vacía `relevantes` y el banner se desmonta solo.
+    } catch (err) {
+      console.error('[mi-horario] marcar notificaciones leídas:', err);
+      setMarcando(false);
+    }
+  }
+
+  return (
+    <Alert data-testid="aviso-notificaciones">
+      <AlertDescription className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 space-y-1">
+          {relevantes.map((n) => (
+            <p key={n.id} className="text-sm">
+              <span className="font-medium">{n.titulo}</span> — {n.mensaje}
+            </p>
+          ))}
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void marcarLeidas()}
+          disabled={marcando}
+        >
+          {marcando ? 'Marcando…' : 'Marcar como leídas'}
+        </Button>
+      </AlertDescription>
+    </Alert>
   );
 }
 
